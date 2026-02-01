@@ -184,6 +184,21 @@
             background: var(--button-hover);
             color: var(--button-text);
         }
+        .longitudinal-size-row {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .longitudinal-size-row input[type="number"] {
+            width: 70px;
+        }
+        .longitudinal-color-list {
+            display: grid;
+            gap: 6px;
+            max-height: 160px;
+            overflow: auto;
+        }
         .code-board { background: var(--card) !important; color: var(--text) !important; padding: 15px; border-radius: 8px; font-family: "SF Mono", monospace; font-size: 11px; overflow-x: auto; white-space: pre; border: 1px solid var(--border); }
         .visual-controls { display: grid; grid-template-columns: repeat(3, minmax(220px, 1fr)); gap: 10px; }
         .control-card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
@@ -1132,7 +1147,14 @@
                         <button class="longitudinal-btn" type="button" data-longitudinal-export="longitudinalTimePlot" data-format="png">Download PNG</button>
                     </div>
                 </div>
-                <svg id="longitudinalTimePlot" viewBox="0 0 900 360" preserveAspectRatio="xMidYMid meet"></svg>
+                <div class="longitudinal-size-row" style="margin-bottom:8px;">
+                    <span style="font-size:0.75rem; color: var(--muted);">Size</span>
+                    <input type="number" id="longitudinalTimeWidth" value="900" min="300">
+                    <input type="number" id="longitudinalTimeHeight" value="360" min="200">
+                </div>
+                <div style="border:1px solid var(--border); border-radius:8px; padding:4px; background: var(--svg-bg);">
+                    <svg id="longitudinalTimePlot" viewBox="0 0 900 360" preserveAspectRatio="xMidYMid meet"></svg>
+                </div>
                 <div id="longitudinalTimeLegend" class="legend-row" style="font-size:0.75rem; color: var(--muted); flex-wrap: wrap;"></div>
             </div>
             <div class="longitudinal-plot-card">
@@ -1143,7 +1165,14 @@
                         <button class="longitudinal-btn" type="button" data-longitudinal-export="longitudinalDiffPlot" data-format="png">Download PNG</button>
                     </div>
                 </div>
-                <svg id="longitudinalDiffPlot" viewBox="0 0 900 360" preserveAspectRatio="xMidYMid meet"></svg>
+                <div class="longitudinal-size-row" style="margin-bottom:8px;">
+                    <span style="font-size:0.75rem; color: var(--muted);">Size</span>
+                    <input type="number" id="longitudinalDiffWidth" value="900" min="300">
+                    <input type="number" id="longitudinalDiffHeight" value="360" min="200">
+                </div>
+                <div style="border:1px solid var(--border); border-radius:8px; padding:4px; background: var(--svg-bg);">
+                    <svg id="longitudinalDiffPlot" viewBox="0 0 900 360" preserveAspectRatio="xMidYMid meet"></svg>
+                </div>
                 <div id="longitudinalDiffLegend" class="legend-row" style="font-size:0.75rem; color: var(--muted); flex-wrap: wrap;"></div>
             </div>
             <div class="longitudinal-plot-card">
@@ -1169,6 +1198,46 @@
                     <div>
                         <label style="font-size:0.75rem; color: var(--muted);">Groups (non-control)</label>
                         <div id="longitudinalGroupChecklist" class="option-list" style="max-height:140px; overflow:auto;"></div>
+                    </div>
+                    <div>
+                        <label style="font-size:0.75rem; color: var(--muted);">Legend font size</label>
+                        <input type="number" id="longitudinalLegendSize" value="11" min="6" max="24">
+                    </div>
+                    <div>
+                        <label style="font-size:0.75rem; color: var(--muted);">Axis line width</label>
+                        <input type="number" id="longitudinalAxisWidth" value="1" min="1" max="6">
+                    </div>
+                    <div>
+                        <label style="font-size:0.75rem; color: var(--muted);">Curve line width</label>
+                        <input type="number" id="longitudinalLineWidth" value="2" min="1" max="6">
+                    </div>
+                    <div>
+                        <label style="font-size:0.75rem; color: var(--muted);">CI line width</label>
+                        <input type="number" id="longitudinalCiLineWidth" value="2" min="1" max="6">
+                    </div>
+                    <div>
+                        <label style="font-size:0.75rem; color: var(--muted);">Time-course Y Min/Max</label>
+                        <div class="longitudinal-size-row">
+                            <input type="number" id="longitudinalTimeYMin" placeholder="auto">
+                            <input type="number" id="longitudinalTimeYMax" placeholder="auto">
+                            <button type="button" class="btn-mini" id="longitudinalTimeYAuto">Auto</button>
+                        </div>
+                        <input type="range" id="longitudinalTimeYMinSlider" min="0" max="100" value="0">
+                        <input type="range" id="longitudinalTimeYMaxSlider" min="0" max="100" value="100">
+                    </div>
+                    <div>
+                        <label style="font-size:0.75rem; color: var(--muted);">Difference X Min/Max</label>
+                        <div class="longitudinal-size-row">
+                            <input type="number" id="longitudinalDiffXMin" placeholder="auto">
+                            <input type="number" id="longitudinalDiffXMax" placeholder="auto">
+                            <button type="button" class="btn-mini" id="longitudinalDiffXAuto">Auto</button>
+                        </div>
+                        <input type="range" id="longitudinalDiffXMinSlider" min="0" max="100" value="0">
+                        <input type="range" id="longitudinalDiffXMaxSlider" min="0" max="100" value="100">
+                    </div>
+                    <div>
+                        <label style="font-size:0.75rem; color: var(--muted);">Group colors</label>
+                        <div id="longitudinalColorList" class="longitudinal-color-list"></div>
                     </div>
                 </div>
             </div>
@@ -1228,7 +1297,20 @@ const longitudinalState = {
     controlIdx: 0,
     ci: 0.9,
     caches: null,
-    source: null
+    source: null,
+    colors: [],
+    legendFontSize: 11,
+    axisStrokeWidth: 1,
+    lineWidth: 2,
+    ciLineWidth: 2,
+    axisRanges: {
+        time: { auto: true, min: null, max: null, autoMin: null, autoMax: null },
+        diff: { auto: true, min: null, max: null, autoMin: null, autoMax: null }
+    },
+    sizes: {
+        time: { width: 900, height: 360 },
+        diff: { width: 900, height: 360 }
+    }
 };
 const explorerMinBase = 10;
 const explorerMinCharPx = 7;
@@ -2336,6 +2418,24 @@ document.addEventListener('DOMContentLoaded', () => {
     const longitudinalGroupCol = document.getElementById('longitudinalGroupCol');
     const longitudinalTimeCol = document.getElementById('longitudinalTimeCol');
     const longitudinalYCol = document.getElementById('longitudinalYCol');
+    const longitudinalLegendSize = document.getElementById('longitudinalLegendSize');
+    const longitudinalAxisWidth = document.getElementById('longitudinalAxisWidth');
+    const longitudinalLineWidth = document.getElementById('longitudinalLineWidth');
+    const longitudinalCiLineWidth = document.getElementById('longitudinalCiLineWidth');
+    const longitudinalTimeYMin = document.getElementById('longitudinalTimeYMin');
+    const longitudinalTimeYMax = document.getElementById('longitudinalTimeYMax');
+    const longitudinalTimeYMinSlider = document.getElementById('longitudinalTimeYMinSlider');
+    const longitudinalTimeYMaxSlider = document.getElementById('longitudinalTimeYMaxSlider');
+    const longitudinalTimeYAuto = document.getElementById('longitudinalTimeYAuto');
+    const longitudinalDiffXMin = document.getElementById('longitudinalDiffXMin');
+    const longitudinalDiffXMax = document.getElementById('longitudinalDiffXMax');
+    const longitudinalDiffXMinSlider = document.getElementById('longitudinalDiffXMinSlider');
+    const longitudinalDiffXMaxSlider = document.getElementById('longitudinalDiffXMaxSlider');
+    const longitudinalDiffXAuto = document.getElementById('longitudinalDiffXAuto');
+    const longitudinalTimeWidth = document.getElementById('longitudinalTimeWidth');
+    const longitudinalTimeHeight = document.getElementById('longitudinalTimeHeight');
+    const longitudinalDiffWidth = document.getElementById('longitudinalDiffWidth');
+    const longitudinalDiffHeight = document.getElementById('longitudinalDiffHeight');
 
     if (longitudinalRawInput) {
         longitudinalRawInput.addEventListener('change', (evt) => {
@@ -2370,6 +2470,118 @@ document.addEventListener('DOMContentLoaded', () => {
         longitudinalCiSlider.addEventListener('input', () => {
             longitudinalState.ci = parseFloat(longitudinalCiSlider.value);
             longitudinalUpdateReadout();
+            updateLongitudinalPlots();
+        });
+    }
+    if (longitudinalLegendSize) longitudinalLegendSize.value = longitudinalState.legendFontSize;
+    if (longitudinalAxisWidth) longitudinalAxisWidth.value = longitudinalState.axisStrokeWidth;
+    if (longitudinalLineWidth) longitudinalLineWidth.value = longitudinalState.lineWidth;
+    if (longitudinalCiLineWidth) longitudinalCiLineWidth.value = longitudinalState.ciLineWidth;
+    if (longitudinalLegendSize) {
+        longitudinalLegendSize.addEventListener('input', () => {
+            longitudinalState.legendFontSize = parseFloat(longitudinalLegendSize.value) || 11;
+            updateLongitudinalPlots();
+        });
+    }
+    if (longitudinalAxisWidth) {
+        longitudinalAxisWidth.addEventListener('input', () => {
+            longitudinalState.axisStrokeWidth = parseFloat(longitudinalAxisWidth.value) || 1;
+            updateLongitudinalPlots();
+        });
+    }
+    if (longitudinalLineWidth) {
+        longitudinalLineWidth.addEventListener('input', () => {
+            longitudinalState.lineWidth = parseFloat(longitudinalLineWidth.value) || 2;
+            updateLongitudinalPlots();
+        });
+    }
+    if (longitudinalCiLineWidth) {
+        longitudinalCiLineWidth.addEventListener('input', () => {
+            longitudinalState.ciLineWidth = parseFloat(longitudinalCiLineWidth.value) || 2;
+            updateLongitudinalPlots();
+        });
+    }
+    if (longitudinalTimeYMin && longitudinalTimeYMax) {
+        longitudinalTimeYMin.addEventListener('change', () => {
+            longitudinalState.axisRanges.time.auto = false;
+            longitudinalState.axisRanges.time.min = parseFloat(longitudinalTimeYMin.value);
+            updateLongitudinalPlots();
+        });
+        longitudinalTimeYMax.addEventListener('change', () => {
+            longitudinalState.axisRanges.time.auto = false;
+            longitudinalState.axisRanges.time.max = parseFloat(longitudinalTimeYMax.value);
+            updateLongitudinalPlots();
+        });
+    }
+    if (longitudinalTimeYMinSlider && longitudinalTimeYMaxSlider) {
+        longitudinalTimeYMinSlider.addEventListener('input', () => {
+            longitudinalState.axisRanges.time.auto = false;
+            longitudinalState.axisRanges.time.min = parseFloat(longitudinalTimeYMinSlider.value);
+            updateLongitudinalPlots();
+        });
+        longitudinalTimeYMaxSlider.addEventListener('input', () => {
+            longitudinalState.axisRanges.time.auto = false;
+            longitudinalState.axisRanges.time.max = parseFloat(longitudinalTimeYMaxSlider.value);
+            updateLongitudinalPlots();
+        });
+    }
+    if (longitudinalTimeYAuto) {
+        longitudinalTimeYAuto.addEventListener('click', () => {
+            longitudinalState.axisRanges.time.auto = true;
+            longitudinalState.axisRanges.time.min = null;
+            longitudinalState.axisRanges.time.max = null;
+            updateLongitudinalPlots();
+        });
+    }
+    if (longitudinalDiffXMin && longitudinalDiffXMax) {
+        longitudinalDiffXMin.addEventListener('change', () => {
+            longitudinalState.axisRanges.diff.auto = false;
+            longitudinalState.axisRanges.diff.min = parseFloat(longitudinalDiffXMin.value);
+            updateLongitudinalPlots();
+        });
+        longitudinalDiffXMax.addEventListener('change', () => {
+            longitudinalState.axisRanges.diff.auto = false;
+            longitudinalState.axisRanges.diff.max = parseFloat(longitudinalDiffXMax.value);
+            updateLongitudinalPlots();
+        });
+    }
+    if (longitudinalDiffXMinSlider && longitudinalDiffXMaxSlider) {
+        longitudinalDiffXMinSlider.addEventListener('input', () => {
+            longitudinalState.axisRanges.diff.auto = false;
+            longitudinalState.axisRanges.diff.min = parseFloat(longitudinalDiffXMinSlider.value);
+            updateLongitudinalPlots();
+        });
+        longitudinalDiffXMaxSlider.addEventListener('input', () => {
+            longitudinalState.axisRanges.diff.auto = false;
+            longitudinalState.axisRanges.diff.max = parseFloat(longitudinalDiffXMaxSlider.value);
+            updateLongitudinalPlots();
+        });
+    }
+    if (longitudinalDiffXAuto) {
+        longitudinalDiffXAuto.addEventListener('click', () => {
+            longitudinalState.axisRanges.diff.auto = true;
+            longitudinalState.axisRanges.diff.min = null;
+            longitudinalState.axisRanges.diff.max = null;
+            updateLongitudinalPlots();
+        });
+    }
+    if (longitudinalTimeWidth && longitudinalTimeHeight) {
+        longitudinalTimeWidth.addEventListener('change', () => {
+            longitudinalState.sizes.time.width = Math.max(300, parseInt(longitudinalTimeWidth.value, 10) || 900);
+            updateLongitudinalPlots();
+        });
+        longitudinalTimeHeight.addEventListener('change', () => {
+            longitudinalState.sizes.time.height = Math.max(200, parseInt(longitudinalTimeHeight.value, 10) || 360);
+            updateLongitudinalPlots();
+        });
+    }
+    if (longitudinalDiffWidth && longitudinalDiffHeight) {
+        longitudinalDiffWidth.addEventListener('change', () => {
+            longitudinalState.sizes.diff.width = Math.max(300, parseInt(longitudinalDiffWidth.value, 10) || 900);
+            updateLongitudinalPlots();
+        });
+        longitudinalDiffHeight.addEventListener('change', () => {
+            longitudinalState.sizes.diff.height = Math.max(200, parseInt(longitudinalDiffHeight.value, 10) || 360);
             updateLongitudinalPlots();
         });
     }
@@ -3511,8 +3723,12 @@ function longitudinalRenderTimeCourse() {
     longitudinalClearSvg(svg);
     if (!longitudinalState.draws || longitudinalState.draws.length === 0) return;
 
-    const width = 900;
-    const height = 360;
+    svg.setAttribute('viewBox', `0 0 ${longitudinalState.sizes.time.width} ${longitudinalState.sizes.time.height}`);
+    svg.style.width = `${longitudinalState.sizes.time.width}px`;
+    svg.style.height = `${longitudinalState.sizes.time.height}px`;
+
+    const width = longitudinalState.sizes.time.width;
+    const height = longitudinalState.sizes.time.height;
     const margin = { top: 20, right: 20, bottom: 40, left: 60 };
     const innerW = width - margin.left - margin.right;
     const innerH = height - margin.top - margin.bottom;
@@ -3535,8 +3751,17 @@ function longitudinalRenderTimeCourse() {
         }
     });
     const yPad = (yMax - yMin) * 0.1 + 1e-6;
-    yMin -= yPad;
-    yMax += yPad;
+    const autoMin = yMin - yPad;
+    const autoMax = yMax + yPad;
+    longitudinalState.axisRanges.time.autoMin = autoMin;
+    longitudinalState.axisRanges.time.autoMax = autoMax;
+    if (longitudinalState.axisRanges.time.auto || !isFinite(longitudinalState.axisRanges.time.min) || !isFinite(longitudinalState.axisRanges.time.max)) {
+        yMin = autoMin;
+        yMax = autoMax;
+    } else {
+        yMin = longitudinalState.axisRanges.time.min;
+        yMax = longitudinalState.axisRanges.time.max;
+    }
 
     const xScale = (x) => margin.left + ((x - xMin) / (xMax - xMin || 1)) * innerW;
     const yScale = (y) => margin.top + innerH - ((y - yMin) / (yMax - yMin || 1)) * innerH;
@@ -3544,8 +3769,8 @@ function longitudinalRenderTimeCourse() {
     const axis = document.createElementNS('http://www.w3.org/2000/svg', 'g');
     svg.appendChild(axis);
     axis.innerHTML = `
-        <line x1="${margin.left}" y1="${margin.top}" x2="${margin.left}" y2="${margin.top + innerH}" stroke="#8c7f6c" />
-        <line x1="${margin.left}" y1="${margin.top + innerH}" x2="${margin.left + innerW}" y2="${margin.top + innerH}" stroke="#8c7f6c" />
+        <line x1="${margin.left}" y1="${margin.top}" x2="${margin.left}" y2="${margin.top + innerH}" stroke="#8c7f6c" stroke-width="${longitudinalState.axisStrokeWidth}" />
+        <line x1="${margin.left}" y1="${margin.top + innerH}" x2="${margin.left + innerW}" y2="${margin.top + innerH}" stroke="#8c7f6c" stroke-width="${longitudinalState.axisStrokeWidth}" />
     `;
 
     for (let i = 0; i <= 5; i++) {
@@ -3575,7 +3800,7 @@ function longitudinalRenderTimeCourse() {
     if (legend) legend.innerHTML = '';
 
     longitudinalState.groups.forEach((name, gIdx) => {
-        const color = longitudinalPalette[gIdx % longitudinalPalette.length];
+        const color = longitudinalState.colors[gIdx] || longitudinalPalette[gIdx % longitudinalPalette.length];
         const modePath = [];
         const upperPath = [];
         const lowerPath = [];
@@ -3599,15 +3824,35 @@ function longitudinalRenderTimeCourse() {
         line.setAttribute('points', modePath.join(' '));
         line.setAttribute('fill', 'none');
         line.setAttribute('stroke', color);
-        line.setAttribute('stroke-width', '2');
+        line.setAttribute('stroke-width', longitudinalState.lineWidth);
         svg.appendChild(line);
 
         if (legend) {
             const legendItem = document.createElement('span');
-            legendItem.innerHTML = `<span style="display:inline-flex; align-items:center; gap:6px;"><i style="display:inline-block; width:12px; height:4px; background:${color}; border-radius:2px;"></i>${name}</span>`;
+            legendItem.innerHTML = `<span style="display:inline-flex; align-items:center; gap:6px; font-size:${longitudinalState.legendFontSize}px;"><i style="display:inline-block; width:12px; height:4px; background:${color}; border-radius:2px;"></i>${name}</span>`;
             legend.appendChild(legendItem);
         }
     });
+
+    const yMinInput = document.getElementById('longitudinalTimeYMin');
+    const yMaxInput = document.getElementById('longitudinalTimeYMax');
+    const yMinSlider = document.getElementById('longitudinalTimeYMinSlider');
+    const yMaxSlider = document.getElementById('longitudinalTimeYMaxSlider');
+    if (yMinInput && yMaxInput && yMinSlider && yMaxSlider) {
+        yMinSlider.min = autoMin;
+        yMinSlider.max = autoMax;
+        yMaxSlider.min = autoMin;
+        yMaxSlider.max = autoMax;
+        yMinSlider.value = yMin;
+        yMaxSlider.value = yMax;
+        if (longitudinalState.axisRanges.time.auto) {
+            yMinInput.value = '';
+            yMaxInput.value = '';
+        } else {
+            yMinInput.value = yMin.toFixed(3);
+            yMaxInput.value = yMax.toFixed(3);
+        }
+    }
 }
 
 function longitudinalRenderDifference() {
@@ -3615,8 +3860,12 @@ function longitudinalRenderDifference() {
     longitudinalClearSvg(svg);
     if (!longitudinalState.draws || longitudinalState.draws.length === 0) return;
 
-    const width = 900;
-    const height = 360;
+    svg.setAttribute('viewBox', `0 0 ${longitudinalState.sizes.diff.width} ${longitudinalState.sizes.diff.height}`);
+    svg.style.width = `${longitudinalState.sizes.diff.width}px`;
+    svg.style.height = `${longitudinalState.sizes.diff.height}px`;
+
+    const width = longitudinalState.sizes.diff.width;
+    const height = longitudinalState.sizes.diff.height;
     const margin = { top: 20, right: 20, bottom: 40, left: 60 };
     const innerW = width - margin.left - margin.right;
     const innerH = height - margin.top - margin.bottom;
@@ -3644,8 +3893,17 @@ function longitudinalRenderDifference() {
     });
     if (!isFinite(xMin) || !isFinite(xMax)) return;
     const xPad = (xMax - xMin) * 0.1 + 1e-6;
-    xMin -= xPad;
-    xMax += xPad;
+    const autoMin = xMin - xPad;
+    const autoMax = xMax + xPad;
+    longitudinalState.axisRanges.diff.autoMin = autoMin;
+    longitudinalState.axisRanges.diff.autoMax = autoMax;
+    if (longitudinalState.axisRanges.diff.auto || !isFinite(longitudinalState.axisRanges.diff.min) || !isFinite(longitudinalState.axisRanges.diff.max)) {
+        xMin = autoMin;
+        xMax = autoMax;
+    } else {
+        xMin = longitudinalState.axisRanges.diff.min;
+        xMax = longitudinalState.axisRanges.diff.max;
+    }
 
     const xScale = (x) => margin.left + ((x - xMin) / (xMax - xMin || 1)) * innerW;
     const yScale = (y) => margin.top + innerH - y * innerH;
@@ -3653,8 +3911,8 @@ function longitudinalRenderDifference() {
     const axis = document.createElementNS('http://www.w3.org/2000/svg', 'g');
     svg.appendChild(axis);
     axis.innerHTML = `
-        <line x1="${margin.left}" y1="${margin.top}" x2="${margin.left}" y2="${margin.top + innerH}" stroke="#8c7f6c" />
-        <line x1="${margin.left}" y1="${margin.top + innerH}" x2="${margin.left + innerW}" y2="${margin.top + innerH}" stroke="#8c7f6c" />
+        <line x1="${margin.left}" y1="${margin.top}" x2="${margin.left}" y2="${margin.top + innerH}" stroke="#8c7f6c" stroke-width="${longitudinalState.axisStrokeWidth}" />
+        <line x1="${margin.left}" y1="${margin.top + innerH}" x2="${margin.left + innerW}" y2="${margin.top + innerH}" stroke="#8c7f6c" stroke-width="${longitudinalState.axisStrokeWidth}" />
     `;
 
     for (let i = 0; i <= 5; i++) {
@@ -3676,14 +3934,14 @@ function longitudinalRenderDifference() {
     const upperQ = 1 - lowerQ;
 
     densities.forEach((item, idx) => {
-        const color = longitudinalPalette[idx % longitudinalPalette.length];
+        const color = longitudinalState.colors[item.gIdx] || longitudinalPalette[idx % longitudinalPalette.length];
         const { tIdx, gIdx, density } = item;
         const points = density.x.map((x, i) => `${xScale(x)},${yScale(density.y[i])}`).join(' ');
         const polyline = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
         polyline.setAttribute('points', points);
         polyline.setAttribute('fill', 'none');
         polyline.setAttribute('stroke', color);
-        polyline.setAttribute('stroke-width', '2');
+        polyline.setAttribute('stroke-width', longitudinalState.lineWidth);
         svg.appendChild(polyline);
 
         const sorted = longitudinalState.caches.D_sorted[tIdx][gIdx];
@@ -3707,19 +3965,40 @@ function longitudinalRenderDifference() {
             line.setAttribute('y1', margin.top);
             line.setAttribute('y2', margin.top + innerH);
             line.setAttribute('stroke', color);
-            line.setAttribute('stroke-width', '2');
+            line.setAttribute('stroke-width', longitudinalState.ciLineWidth);
             svg.appendChild(line);
         });
 
         if (legend) {
             const legendItem = document.createElement('span');
-            legendItem.innerHTML = `<span style="display:inline-flex; align-items:center; gap:6px;"><i style="display:inline-block; width:12px; height:4px; background:${color}; border-radius:2px;"></i>${longitudinalState.groups[gIdx]} @ t=${longitudinalState.times[tIdx]}</span>`;
+            legendItem.innerHTML = `<span style="display:inline-flex; align-items:center; gap:6px; font-size:${longitudinalState.legendFontSize}px;"><i style="display:inline-block; width:12px; height:4px; background:${color}; border-radius:2px;"></i>${longitudinalState.groups[gIdx]} @ t=${longitudinalState.times[tIdx]}</span>`;
             legend.appendChild(legendItem);
         }
     });
+
+    const xMinInput = document.getElementById('longitudinalDiffXMin');
+    const xMaxInput = document.getElementById('longitudinalDiffXMax');
+    const xMinSlider = document.getElementById('longitudinalDiffXMinSlider');
+    const xMaxSlider = document.getElementById('longitudinalDiffXMaxSlider');
+    if (xMinInput && xMaxInput && xMinSlider && xMaxSlider) {
+        xMinSlider.min = autoMin;
+        xMinSlider.max = autoMax;
+        xMaxSlider.min = autoMin;
+        xMaxSlider.max = autoMax;
+        xMinSlider.value = xMin;
+        xMaxSlider.value = xMax;
+        if (longitudinalState.axisRanges.diff.auto) {
+            xMinInput.value = '';
+            xMaxInput.value = '';
+        } else {
+            xMinInput.value = xMin.toFixed(3);
+            xMaxInput.value = xMax.toFixed(3);
+        }
+    }
 }
 
 function updateLongitudinalPlots() {
+    longitudinalBuildColorControls();
     longitudinalRenderTimeCourse();
     longitudinalRenderDifference();
 }
@@ -3780,9 +4059,12 @@ function longitudinalSetData(draws, groups, times, sourceLabel) {
     longitudinalState.times = times.map(t => parseInt(t, 10));
     longitudinalState.controlIdx = 0;
     longitudinalState.source = sourceLabel;
+    longitudinalState.colors = groups.map((_, idx) => longitudinalPalette[idx % longitudinalPalette.length]);
     longitudinalBuildCaches();
     longitudinalBuildDiffCaches();
     longitudinalSetupControls();
+    longitudinalBuildColorControls();
+    longitudinalSyncSizeInputs();
     longitudinalUpdateReadout();
     longitudinalSetStatus(`Loaded ${draws.length} draws (${sourceLabel}).`);
     updateLongitudinalPlots();
@@ -3961,6 +4243,42 @@ function longitudinalDownloadPng(svgId, filename) {
         }, 'image/png');
     };
     img.src = url;
+}
+
+function longitudinalBuildColorControls() {
+    const list = document.getElementById('longitudinalColorList');
+    if (!list) return;
+    list.innerHTML = '';
+    longitudinalState.groups.forEach((name, idx) => {
+        const row = document.createElement('div');
+        row.style.display = 'flex';
+        row.style.alignItems = 'center';
+        row.style.gap = '8px';
+        const swatch = document.createElement('input');
+        swatch.type = 'color';
+        swatch.value = longitudinalState.colors[idx] || longitudinalPalette[idx % longitudinalPalette.length];
+        swatch.addEventListener('input', () => {
+            longitudinalState.colors[idx] = swatch.value;
+            updateLongitudinalPlots();
+        });
+        const label = document.createElement('span');
+        label.textContent = name;
+        label.style.fontSize = '0.75rem';
+        row.appendChild(swatch);
+        row.appendChild(label);
+        list.appendChild(row);
+    });
+}
+
+function longitudinalSyncSizeInputs() {
+    const timeW = document.getElementById('longitudinalTimeWidth');
+    const timeH = document.getElementById('longitudinalTimeHeight');
+    const diffW = document.getElementById('longitudinalDiffWidth');
+    const diffH = document.getElementById('longitudinalDiffHeight');
+    if (timeW) timeW.value = longitudinalState.sizes.time.width;
+    if (timeH) timeH.value = longitudinalState.sizes.time.height;
+    if (diffW) diffW.value = longitudinalState.sizes.diff.width;
+    if (diffH) diffH.value = longitudinalState.sizes.diff.height;
 }
 
 function computeSurvivalCurve(times) {
