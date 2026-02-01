@@ -1162,6 +1162,7 @@
                     <div class="longitudinal-actions">
                         <button class="longitudinal-btn" type="button" data-longitudinal-export="longitudinalTimePlot" data-format="svg">Download SVG</button>
                         <button class="longitudinal-btn" type="button" data-longitudinal-export="longitudinalTimePlot" data-format="png">Download PNG</button>
+                        <button class="longitudinal-btn" type="button" id="longitudinalTimeReset">Reset</button>
                     </div>
                 </div>
                 <div class="longitudinal-size-row" style="margin-bottom:8px;">
@@ -1184,6 +1185,7 @@
                     <div class="longitudinal-actions">
                         <button class="longitudinal-btn" type="button" data-longitudinal-export="longitudinalDiffPlot" data-format="svg">Download SVG</button>
                         <button class="longitudinal-btn" type="button" data-longitudinal-export="longitudinalDiffPlot" data-format="png">Download PNG</button>
+                        <button class="longitudinal-btn" type="button" id="longitudinalDiffReset">Reset</button>
                     </div>
                 </div>
                 <div class="longitudinal-size-row" style="margin-bottom:8px;">
@@ -2465,6 +2467,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const longitudinalTimeHeight = document.getElementById('longitudinalTimeHeight');
     const longitudinalDiffWidth = document.getElementById('longitudinalDiffWidth');
     const longitudinalDiffHeight = document.getElementById('longitudinalDiffHeight');
+    const longitudinalTimeReset = document.getElementById('longitudinalTimeReset');
+    const longitudinalDiffReset = document.getElementById('longitudinalDiffReset');
     const longitudinalHandles = document.querySelectorAll('.longitudinal-handle');
     const longitudinalTimeWrapper = document.getElementById('longitudinalTimeWrapper');
     const longitudinalDiffWrapper = document.getElementById('longitudinalDiffWrapper');
@@ -2614,6 +2618,26 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         longitudinalDiffHeight.addEventListener('change', () => {
             longitudinalState.sizes.diff.height = Math.max(200, parseInt(longitudinalDiffHeight.value, 10) || 360);
+            updateLongitudinalPlots();
+        });
+    }
+    if (longitudinalTimeReset) {
+        longitudinalTimeReset.addEventListener('click', () => {
+            longitudinalState.sizes.time.width = 900;
+            longitudinalState.sizes.time.height = 360;
+            longitudinalState.offsets.time.x = 0;
+            longitudinalState.offsets.time.y = 0;
+            longitudinalSyncSizeInputs();
+            updateLongitudinalPlots();
+        });
+    }
+    if (longitudinalDiffReset) {
+        longitudinalDiffReset.addEventListener('click', () => {
+            longitudinalState.sizes.diff.width = 900;
+            longitudinalState.sizes.diff.height = 360;
+            longitudinalState.offsets.diff.x = 0;
+            longitudinalState.offsets.diff.y = 0;
+            longitudinalSyncSizeInputs();
             updateLongitudinalPlots();
         });
     }
