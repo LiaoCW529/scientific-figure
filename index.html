@@ -1,0 +1,4243 @@
+<!DOCTYPE html>
+<html lang="ja" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <title>SVG Plotter v10 - Multi-Group Support</title>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <style>
+        :root {
+            --bg: #F3EFE6;
+            --panel: #E7D7B8;
+            --card: #F6F0E3;
+            --border: #CBB489;
+            --text: #2B2A27;
+            --muted: #5D574C;
+            --accent: #7B5A2B;
+            --accent-2: #B07D2B;
+            --danger: #B84A3A;
+            --focus: #2F6FED;
+            --input-bg: #F6F0E3;
+            --input-text: #2B2A27;
+            --input-border: #CBB489;
+            --button-bg: var(--accent);
+            --button-text: #ffffff;
+            --button-hover: var(--accent-2);
+            --button-active: #6a4b22;
+            --button-disabled: #d9c7a4;
+            --preview-bg: #EFE6D2;
+            --preview-border: #CBB489;
+            --svg-bg: #F6F0E3;
+            --svg-ink: #2B2A27;
+            --svg-muted: #5D574C;
+            --explorer-bg: #E7D7B8;
+            --explorer-text: #2B2A27;
+            --explorer-muted: #5D574C;
+            --explorer-border: #CBB489;
+            --explorer-handle: #D7C6A6;
+            --explorer-input-bg: #F6F0E3;
+            --explorer-input-text: #2B2A27;
+            --explorer-card: #F6F0E3;
+            --explorer-hover: #E5D1A9;
+            --explorer-selected: #D9BF8C;
+        }
+        html[data-theme="dark"] {
+            --bg: #101214;
+            --panel: #161A1D;
+            --card: #1C2226;
+            --border: #2A3238;
+            --text: #E7E7E7;
+            --muted: #A8B0B7;
+            --accent: #D2A24C;
+            --accent-2: #F0C66B;
+            --danger: #FF6B5B;
+            --focus: #7AA2F7;
+            --input-bg: #1C2226;
+            --input-text: #E7E7E7;
+            --input-border: #2A3238;
+            --button-bg: var(--accent);
+            --button-text: #101214;
+            --button-hover: var(--accent-2);
+            --button-active: #b88935;
+            --button-disabled: #2A3238;
+            --preview-bg: #14181c;
+            --preview-border: #2A3238;
+            --svg-bg: #1C2226;
+            --svg-ink: #E7E7E7;
+            --svg-muted: #A8B0B7;
+            --explorer-bg: #1f2d3d;
+            --explorer-text: #f8f9fa;
+            --explorer-muted: #cdd6e3;
+            --explorer-border: #40556f;
+            --explorer-handle: #2f4054;
+            --explorer-input-bg: #233446;
+            --explorer-input-text: #f8f9fa;
+            --explorer-card: #1f2d3d;
+            --explorer-hover: #2a3c52;
+            --explorer-selected: #36506c;
+        }
+        body { font-family: -apple-system, sans-serif; margin: 20px; background: var(--bg); color: var(--text); }
+        .container {
+            display: flex;
+            gap: 0;
+            max-width: 100vw;
+            height: 98vh;
+            margin: 0 auto;
+            align-items: flex-start;
+        }
+        .panel { background: var(--panel); padding: 20px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.08); }
+        .input-area {
+            flex: 0 0 250px;
+            min-width: 0;
+            max-width: 800px;
+            position: sticky;
+            top: 10px;
+            max-height: 95vh;
+            overflow-y: auto;
+        }
+
+        .preview-wrapper {
+            display: grid;
+            grid-template-columns: 50px 1fr;
+            grid-template-rows: 1fr auto auto auto auto auto;
+            gap: 10px;
+            background: var(--preview-bg);
+            padding: 30px;
+            border: 2px dashed var(--preview-border);
+            border-radius: 12px;
+            align-items: center;
+            justify-items: center;
+            position: relative;
+        }
+        .slider-v { grid-column: 1; grid-row: 1; width: 12px; height: 400px; writing-mode: vertical-lr; direction: rtl; }
+        .slider-h { grid-column: 2; grid-row: 2; width: 100%; height: 12px; }
+        #svg-wrapper { grid-column: 2; grid-row: 1; background: var(--svg-bg); box-shadow: 0 8px 25px rgba(0,0,0,0.1); position: relative; justify-self: start; }
+        html[data-theme="dark"] #svg-container svg { filter: brightness(0.92); }
+        .resize-handle {
+            width: 10px;
+            height: 10px;
+            background: #ff69b4;
+            border: 1px solid #d84c8f;
+            border-radius: 50%;
+            position: absolute;
+            z-index: 5;
+        }
+        .handle-pos {
+            position: absolute;
+            font-size: 0.7rem;
+            color: var(--muted);
+            background: var(--card);
+            padding: 2px 4px;
+            border-radius: 4px;
+        }
+        .resize-tl { top: -6px; left: -6px; cursor: nwse-resize; }
+        .resize-tr { top: -6px; right: -6px; cursor: nesw-resize; }
+        .resize-bl { bottom: -6px; left: -6px; cursor: nesw-resize; }
+        .resize-br { bottom: -6px; right: -6px; cursor: nwse-resize; }
+        .ymax-pos {
+            font-size: 0.7rem;
+            color: var(--muted);
+        }
+        .preview-row { display: flex; gap: 12px; align-items: flex-start; }
+        .preview-wrapper { flex: 1; }
+        .side-panels { display: flex; flex-direction: column; gap: 12px; width: 220px; }
+        .legend-panel { width: 100%; align-self: flex-start; }
+
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            padding: 20px;
+            height: 100vh;
+            overflow-y: auto;
+        }
+        .stats-panel { background: var(--panel); padding: 20px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.08); }
+        .code-board { background: var(--card) !important; color: var(--text) !important; padding: 15px; border-radius: 8px; font-family: "SF Mono", monospace; font-size: 11px; overflow-x: auto; white-space: pre; border: 1px solid var(--border); }
+        .visual-controls { display: grid; grid-template-columns: repeat(3, minmax(220px, 1fr)); gap: 10px; }
+        .control-card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+        .control-card h4 { margin: 0; font-size: 0.85rem; color: var(--text); }
+        .control-item { display: flex; flex-direction: column; gap: 4px; font-size: 0.75rem; min-width: 0; }
+        .legend-panel { padding: 10px; }
+        .control-item input[type="number"] { width: 70px; }
+        .control-item input[type="range"] { width: 100%; }
+        .legend-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+        .legend-row label { font-weight: normal; font-size: 0.75rem; color: var(--muted); }
+        .legend-row input[type="number"] { width: 70px; }
+        .option-list { display: grid; gap: 6px; font-size: 0.75rem; }
+        .compact-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+        .ymax-card { grid-column: 2; grid-row: 1; justify-self: start; align-self: start; }
+        .ymax-input { width: 34px; height: 30px; text-align: center; padding: 0; }
+        .ymax-card { grid-column: 2; grid-row: 1; justify-self: start; align-self: start; }
+        .ymax-input { width: 44px; height: 44px; text-align: center; padding: 0; }
+        .card-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .legend-move {
+            display: grid;
+            grid-template-columns: repeat(3, 22px);
+            grid-auto-rows: 22px;
+            gap: 4px;
+            justify-items: center;
+            align-items: center;
+            margin-top: -6px;
+            margin-bottom: 6px;
+        }
+        .legend-btn {
+            width: 22px;
+            height: 22px;
+            border: 1px solid var(--border);
+            background: var(--card);
+            color: var(--text);
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 10px;
+            line-height: 1;
+        }
+        .auto-btn {
+            width: 36px;
+            height: 22px;
+            padding: 0;
+            margin: 0;
+            font-size: 0.7rem;
+            border: 1px solid var(--border);
+            background: var(--card);
+            color: var(--text);
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .legend-input { width: 50%; }
+        .legend-stack { gap: 6px; }
+        .error-toggle { display: flex; gap: 6px; }
+        .btn-mini {
+            padding: 4px 8px;
+            font-size: 0.7rem;
+            border: 1px solid var(--border);
+            background: var(--card);
+            color: var(--text);
+            border-radius: 4px;
+            cursor: pointer;
+            width: 36px;
+            height: 22px;
+        }
+        .btn-mini.active { background: var(--accent); color: var(--button-text); border-color: var(--accent); }
+        .btn-mini:hover { background: var(--button-hover); border-color: var(--button-hover); color: var(--button-text); }
+        .legend-btn:hover, .auto-btn:hover { background: var(--button-hover); border-color: var(--button-hover); color: var(--button-text); }
+        .ymax-card { grid-column: 2; grid-row: 1; justify-self: start; align-self: start; }
+        .ymax-input { width: 44px; height: 44px; text-align: center; padding: 0; }
+        .card-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .panel-tight { padding: 14px; }
+        .panel-tight h3 { margin-bottom: 10px; }
+        .ymax-inline {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .ymax-inline .control-item {
+            gap: 2px;
+        }
+        .panel-disabled { opacity: 0.5; pointer-events: none; }
+
+        .resizer {
+            width: 8px;
+            cursor: col-resize;
+            background: var(--border);
+            transition: background 0.2s;
+            z-index: 10;
+            height: 100%;
+            align-self: stretch;
+        }
+        .resizer:hover { background: var(--accent); }
+
+        /* グループカード関連 */
+        .group-card { border: 1px solid var(--border); padding: 12px; border-radius: 8px; margin-bottom: 15px; position: relative; background: var(--card); }
+        .group-header { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; padding-right: 30px; }
+        .btn-remove { position: absolute; top: 8px; right: 8px; background: var(--danger); color: white; border: none; border-radius: 4px; width: 24px; height: 24px; cursor: pointer; font-size: 12px; }
+        textarea { width: 100%; height: 70px; font-family: "SF Mono", monospace; font-size: 11px; padding: 8px; border: 1px solid var(--input-border); border-radius: 4px; box-sizing: border-box; background: var(--input-bg); color: var(--input-text); }
+        .paste-preview { margin-top: 6px; max-height: 140px; overflow: auto; border: 1px solid var(--border); border-radius: 4px; background: var(--card); }
+        .paste-preview table { width: 100%; border-collapse: collapse; font-size: 0.7rem; }
+        .paste-preview th, .paste-preview td { border: 1px solid var(--border); padding: 2px 4px; text-align: center; color: var(--text); }
+
+        .master-label-card { background: var(--card) !important; border: 1px solid var(--border) !important; padding: 12px; border-radius: 8px; margin-bottom: 15px; color: var(--text); }
+        .control-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 15px; font-size: 0.85rem; }
+        label { font-weight: bold; color: var(--muted); display: block; margin-bottom: 3px; }
+        input[type="number"], input[type="range"], select, .text-input { width: 100%; padding: 6px; box-sizing: border-box; border: 1px solid var(--input-border); border-radius: 4px; background: var(--input-bg); color: var(--input-text); }
+        input::placeholder, .text-input::placeholder { color: var(--muted); }
+        input:focus, select:focus, .text-input:focus, button:focus-visible {
+            outline: 2px solid var(--focus);
+            outline-offset: 2px;
+        }
+
+        button { width: 100%; padding: 12px; margin-top: 10px; cursor: pointer; border: 1px solid var(--button-bg); border-radius: 6px; font-weight: bold; background: var(--button-bg); color: var(--button-text); }
+        button:hover { background: var(--button-hover); border-color: var(--button-hover); }
+        button:active { background: var(--button-active); border-color: var(--button-active); }
+        button:disabled { background: var(--button-disabled); border-color: var(--button-disabled); color: var(--muted); cursor: not-allowed; }
+        .btn-add { background: var(--button-bg); color: var(--button-text); margin-bottom: 20px; }
+        .btn-gen { background: var(--button-bg); color: var(--button-text); }
+        .btn-dl { background: var(--button-bg); color: var(--button-text); }
+        .btn-small { width: 30%; margin-top: 0; padding: 5px 10px; font-size: 0.85rem; }
+        .config-profile {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            font-size: 0.85rem;
+        }
+        .config-profile .config-title { font-weight: bold; color: var(--muted); }
+        .config-profile .config-actions {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        .config-profile .btn-profile {
+            width: auto;
+            padding: 6px 10px;
+            margin-top: 0;
+            font-size: 0.8rem;
+            border-radius: 4px;
+            background: var(--button-bg);
+            color: var(--button-text);
+        }
+        .panel-compact { padding: 10px; }
+        .toast {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.85);
+            color: #ffffff;
+            padding: 10px 14px;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s ease;
+            z-index: 999;
+        }
+        .toast.show { opacity: 1; }
+
+        #explorer-panel {
+            position: fixed;
+            top: 0;
+            left: 0;
+            height: 100vh;
+            width: 100vw;
+            background: var(--explorer-bg);
+            color: var(--explorer-text);
+            transform: translateX(calc(-100% + 16px));
+            transition: transform 0.25s ease;
+            z-index: 2000;
+            display: flex;
+        }
+        #explorer-panel.pinned {
+            transform: translateX(0);
+        }
+        #explorer-handle {
+            width: 16px;
+            background: var(--explorer-handle);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            user-select: none;
+        }
+        #explorer-content {
+            flex: 1;
+            padding: 18px 20px 20px;
+            overflow-y: auto;
+        }
+        #explorer-content h3 {
+            margin: 0;
+            font-size: 1rem;
+        }
+        .explorer-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 10px;
+        }
+        .explorer-hide {
+            background: var(--explorer-border);
+            color: var(--explorer-text);
+            border: none;
+            padding: 4px 8px;
+            font-size: 0.75rem;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .explorer-controls {
+            display: grid;
+            gap: 10px;
+            margin-bottom: 12px;
+        }
+        .explorer-controls label {
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--explorer-muted);
+        }
+        .explorer-controls input,
+        .explorer-controls select {
+            width: 100%;
+            padding: 6px;
+            border-radius: 4px;
+            border: 1px solid var(--explorer-border);
+            background: var(--explorer-input-bg);
+            color: var(--explorer-input-text);
+            font-size: 0.8rem;
+        }
+        .explorer-controls .explorer-row {
+            display: grid;
+            gap: 6px;
+        }
+        .explorer-title-display {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+            font-size: 0.8rem;
+            color: var(--explorer-muted);
+        }
+        .explorer-title-display span:last-child {
+            color: var(--explorer-text);
+            font-weight: 600;
+            word-break: break-word;
+        }
+        .explorer-table {
+            width: auto;
+            border-collapse: collapse;
+            background: var(--explorer-card);
+            color: var(--explorer-text);
+            font-size: 11px;
+            border-radius: 6px;
+            overflow: hidden;
+            user-select: none;
+        }
+        .explorer-table.fixed {
+            table-layout: fixed;
+        }
+        .explorer-table th,
+        .explorer-table td {
+            border: 1px solid var(--explorer-border);
+            padding: 4px 6px;
+            text-align: left;
+            user-select: none;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .explorer-table th {
+            position: relative;
+        }
+.col-resizer {
+    position: absolute;
+    right: -5px;
+    top: 0;
+    width: 15px;
+    height: 100%;
+    cursor: col-resize;
+    background: transparent;
+    z-index: 2000;
+}
+        .col-resizer::after {
+            content: "";
+            position: absolute;
+            right: 4px;
+            top: 20%;
+            width: 2px;
+            height: 60%;
+            background: var(--explorer-border);
+            border-radius: 1px;
+            opacity: 0.7;
+        }
+        .col-resizer:hover::after {
+            background: var(--accent);
+            opacity: 1;
+        }
+        .explorer-col-controls {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+            margin-bottom: 8px;
+        }
+        .explorer-col-controls label {
+            font-size: 0.75rem;
+            color: var(--explorer-muted);
+        }
+        .explorer-col-controls input[type="number"],
+        .explorer-col-controls input[type="range"] {
+            background: var(--explorer-input-bg);
+            color: var(--explorer-input-text);
+            border: 1px solid var(--explorer-border);
+            border-radius: 4px;
+        }
+        .explorer-col-controls button {
+            background: var(--accent);
+            color: var(--button-text);
+            border: 1px solid var(--explorer-border);
+            border-radius: 6px;
+            padding: 6px 8px;
+            cursor: pointer;
+        }
+        .explorer-col-controls button:hover {
+            background: var(--accent-2);
+        }
+        .no-select {
+            user-select: none;
+        }
+        .explorer-table tr:hover td {
+            background: var(--explorer-hover);
+            cursor: pointer;
+        }
+        .explorer-selected {
+            background: var(--explorer-selected) !important;
+        }
+        .explorer-menu {
+            position: fixed;
+            z-index: 3000;
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            box-shadow: 0 6px 14px rgba(0,0,0,0.15);
+            padding: 6px;
+            display: none;
+            min-width: 160px;
+            color: var(--text);
+        }
+        .explorer-menu button {
+            width: 100%;
+            margin: 2px 0;
+            padding: 6px 8px;
+            font-size: 0.75rem;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            background: var(--accent);
+            color: var(--button-text);
+            cursor: pointer;
+        }
+        .explorer-menu button:hover { background: var(--accent-2); }
+        .explorer-staged {
+            margin-top: 14px;
+            border-top: 1px solid var(--explorer-border);
+            padding-top: 10px;
+        }
+        .explorer-staged h4 {
+            margin: 0 0 6px 0;
+            font-size: 0.85rem;
+            color: var(--explorer-muted);
+        }
+        #explorer-staged-area {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .staged-item {
+            flex: 0 0 140px;
+        }
+        .explorer-staged textarea {
+            width: 100%;
+            height: 70px;
+            font-family: monospace;
+            font-size: 11px;
+            margin-top: 4px;
+            border-radius: 4px;
+            border: 1px solid var(--explorer-border);
+            background: var(--explorer-card);
+            color: var(--explorer-text);
+        }
+        .explorer-staged-actions {
+            display: flex;
+            gap: 6px;
+            margin-top: 8px;
+        }
+        .explorer-staged-actions button {
+            flex: 1;
+            padding: 6px 8px;
+            font-size: 0.75rem;
+            border-radius: 4px;
+            border: 1px solid transparent;
+            cursor: pointer;
+        }
+        .explorer-apply { background: var(--accent); color: var(--button-text); }
+        .explorer-clear { background: var(--danger); color: #fff; }
+        .explorer-staged-actions button:hover { filter: brightness(1.05); }
+        .explorer-menu .explorer-menu-row {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+            margin-top: 4px;
+        }
+        .explorer-menu input {
+            width: 60px;
+            padding: 4px 6px;
+            border-radius: 4px;
+            border: 1px solid var(--explorer-border);
+            background: var(--explorer-input-bg);
+            color: var(--explorer-input-text);
+            font-size: 0.75rem;
+        }
+        .explorer-send {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 6px;
+            margin-top: 10px;
+        }
+        .explorer-send button {
+            padding: 6px 8px;
+            font-size: 0.75rem;
+            border-radius: 4px;
+            border: 1px solid var(--explorer-border);
+            background: var(--accent);
+            color: var(--button-text);
+            cursor: pointer;
+        }
+        .explorer-send .explorer-custom {
+            grid-column: span 3;
+            display: flex;
+            gap: 6px;
+            align-items: center;
+        }
+        .explorer-send .explorer-custom input {
+            width: 70px;
+            padding: 4px 6px;
+            border-radius: 4px;
+            border: 1px solid var(--explorer-border);
+            background: var(--explorer-input-bg);
+            color: var(--explorer-input-text);
+            font-size: 0.75rem;
+        }
+        .explorer-note {
+            font-size: 0.75rem;
+            color: var(--explorer-muted);
+            margin-top: 6px;
+        }
+        .drop-zone {
+            border: 1.5px dashed var(--explorer-border);
+            background: var(--explorer-card);
+            color: var(--explorer-text);
+            border-radius: 8px;
+            padding: 14px;
+            text-align: center;
+            cursor: pointer;
+            transition: border-color 0.2s, background 0.2s;
+            flex: 0 0 33%;
+        }
+        .drop-zone:hover, .drop-zone.dragging {
+            border-color: var(--accent-2);
+            background: var(--explorer-hover);
+        }
+        .drop-zone .drop-title { font-size: 0.9rem; font-weight: 700; }
+        .drop-zone .drop-note { font-size: 0.75rem; color: var(--explorer-muted); margin-top: 6px; }
+        .drop-zone .drop-hint { font-size: 0.7rem; color: var(--explorer-muted); margin-top: 4px; }
+        .drop-browse {
+            margin-top: 10px;
+            padding: 6px 10px;
+            border: 1px solid var(--explorer-border);
+            background: var(--explorer-card);
+            color: var(--explorer-text);
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.8rem;
+        }
+        .drop-browse:hover {
+            border-color: var(--accent-2);
+        }
+        .explorer-top-row {
+            display: flex;
+            gap: 10px;
+            align-items: stretch;
+        }
+        #explorerFileTree {
+            flex: 1;
+            background: var(--explorer-bg);
+            border: 1px solid var(--explorer-border);
+            border-radius: 8px;
+            color: var(--explorer-text);
+            padding: 10px;
+            min-height: 160px;
+            overflow: auto;
+            user-select: none;
+        }
+        .tree-note { font-size: 0.8rem; color: var(--explorer-muted); }
+        .tree-node { padding-left: 14px; font-size: 0.85rem; line-height: 1.4; }
+        .tree-dir, .tree-file { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+        .tree-dir:hover, .tree-file:hover { background: var(--explorer-hover); }
+        .tree-dir.selected, .tree-file.selected { background: var(--explorer-selected); }
+        .tree-toggle { width: 14px; text-align: center; color: var(--explorer-muted); }
+        .tree-name { color: var(--explorer-text); }
+        .tree-file .tree-name { color: var(--explorer-text); }
+        .explorer-preview-wrap {
+            max-height: calc(100vh - 260px);
+            overflow: auto;
+            border: 1px solid var(--explorer-border);
+            border-radius: 6px;
+            background: var(--explorer-card);
+            user-select: none;
+            overscroll-behavior: contain;
+            -webkit-overflow-scrolling: touch;
+        }
+        #explorer-content::-webkit-scrollbar,
+        .explorer-preview-wrap::-webkit-scrollbar,
+        #explorerFileTree::-webkit-scrollbar {
+            width: 10px;
+            height: 10px;
+        }
+        #explorer-content::-webkit-scrollbar-thumb,
+        .explorer-preview-wrap::-webkit-scrollbar-thumb,
+        #explorerFileTree::-webkit-scrollbar-thumb {
+            background: var(--explorer-border);
+            border-radius: 8px;
+        }
+        #explorer-content::-webkit-scrollbar-track,
+        .explorer-preview-wrap::-webkit-scrollbar-track,
+        #explorerFileTree::-webkit-scrollbar-track {
+            background: var(--explorer-card);
+        }
+        .bar-width-card { display: none; }
+        .bar-width-card .control-item { margin: 0; }
+        .bar-draggable { cursor: grab; }
+        .bar-draggable.dragging { cursor: grabbing; opacity: 0.8; stroke: #ff69b4; stroke-width: 2; }
+        .group-label { cursor: ns-resize; user-select: none; }
+        .graph-controls-row {
+            grid-column: 2;
+            grid-row: 2;
+            width: 100%;
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 10px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 10px;
+        }
+        .graph-controls-row .legend-panel { margin: 0; width: 100%; box-shadow: none; }
+        .axis-label { cursor: move; user-select: none; }
+        .theme-toggle {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.8rem;
+            color: var(--muted);
+        }
+        .option-list label,
+        .legend-row label,
+        .control-item label {
+            color: var(--text) !important;
+        }
+        html[data-theme="dark"] .master-label-card {
+            background: var(--card) !important;
+            border-color: var(--border) !important;
+            color: var(--text);
+        }
+        html[data-theme="dark"] .control-card h4,
+        html[data-theme="dark"] label,
+        html[data-theme="dark"] .legend-row label,
+        html[data-theme="dark"] .option-list label,
+        html[data-theme="dark"] .control-item,
+        html[data-theme="dark"] .ymax-pos {
+            color: var(--text);
+        }
+        html[data-theme="dark"] .legend-panel,
+        html[data-theme="dark"] .panel,
+        html[data-theme="dark"] .stats-panel,
+        html[data-theme="dark"] .code-board {
+            background: var(--panel);
+            border-color: var(--border);
+        }
+    </style>
+</head>
+<body>
+
+<div id="explorer-panel">
+    <div id="explorer-handle" title="Explorer">⋮</div>
+    <div id="explorer-content">
+        <div class="explorer-header">
+            <h3>Explorer</h3>
+        </div>
+        <div class="explorer-controls">
+            <div class="explorer-top-row">
+                <div class="drop-zone" id="explorerDropZone">
+                    <div class="drop-title">Drag & Drop local files or folders</div>
+                    <div class="drop-note">Local-only loading; no upload.</div>
+                    <div class="drop-hint">Drop CSV / TSV / XLSX / XLS here</div>
+                    <button type="button" class="drop-browse" onclick="document.getElementById('explorerDirInput').click()">or select from local</button>
+                </div>
+                <div id="explorerFileTree">
+                    <div class="tree-note">Drop a folder to show its tree here.</div>
+                </div>
+            </div>
+            <input type="file" id="explorerDirInput" webkitdirectory style="display:none;">
+            <div>
+                <label for="explorerFileList">Select From Folder (local)</label>
+                <select id="explorerFileList">
+                    <option value="">No file selected</option>
+                </select>
+            </div>
+            <div>
+                <label for="explorerSheetSelect">Sheet</label>
+                <select id="explorerSheetSelect" disabled>
+                    <option value="">No sheet</option>
+                </select>
+            </div>
+            <small class="explorer-note">Files stay local; nothing is uploaded.</small>
+        </div>
+        <div id="explorer-preview-area">
+            <p class="explorer-note">Select a local file to preview (読み込みのみで端末から外へ送信されません)。Drag to select cells, then stage to a group.</p>
+        </div>
+        <div class="explorer-staged">
+            <h4>Staged Group Data</h4>
+            <div class="explorer-title-display">
+                <span>Title:</span>
+                <span id="explorerTitleDisplay">-</span>
+            </div>
+            <div id="explorer-staged-area"></div>
+            <div class="explorer-staged-actions">
+                <button type="button" class="explorer-apply" onclick="applyStagedGroups()">Send to Main</button>
+                <button type="button" class="explorer-clear" onclick="clearStagedGroups()">Clear</button>
+            </div>
+        </div>
+        <button type="button" class="explorer-hide" id="explorerHideBtn" style="margin-top: 12px; width: 100%;">Hide</button>
+    </div>
+</div>
+<div id="explorerMenu" class="explorer-menu">
+    <button type="button" onclick="sendExplorerToGroup(1)">Stage to Group 1</button>
+    <button type="button" onclick="sendExplorerToGroup(2)">Stage to Group 2</button>
+    <button type="button" onclick="sendExplorerToGroup(3)">Stage to Group 3</button>
+    <button type="button" onclick="sendExplorerToTitle()">Send to Title</button>
+    <div class="explorer-menu-row">
+        <span style="font-size:0.7rem; color: var(--muted);">Group #</span>
+        <input type="number" id="explorerGroupIndexMenu" min="1" value="4">
+        <button type="button" style="width:auto; padding:4px 8px;" onclick="sendExplorerToGroup()">Stage</button>
+    </div>
+</div>
+
+<div class="container">
+    <div class="panel input-area" id="leftPanel">
+        <div class="master-label-card">
+            <label style="margin-bottom:6px;">Theme</label>
+            <select id="themeSelect" class="text-input" aria-label="Theme">
+                <option value="system">System</option>
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+            </select>
+        </div>
+        <h3 style="margin-top:0;">1. Time Points / Labels</h3>
+        <div class="master-label-card" style="margin-bottom: 20px;">
+            <label style="display: block; font-weight: bold; color: #d9480f; margin-bottom: 6px;">Mode</label>
+            <select id="plotMode" class="text-input" onchange="setPlotMode()">
+                <option value="time">Time Series Mode</option>
+                <option value="comparison" selected>Comparison Mode</option>
+                <option value="survival">Survival Mode</option>
+            </select>
+        </div>
+        <div class="master-label-card">
+            <label style="margin-bottom:6px;">Load Sample Data</label>
+            <div style="display:flex; gap:8px;">
+                <button type="button" class="btn-add" style="margin:0;" onclick="loadSampleTimeline()">Time Series Sample</button>
+                <button type="button" class="btn-add" style="margin:0;" onclick="loadSampleComparison()">Two-Group Sample</button>
+                <button type="button" class="btn-add" style="margin:0;" onclick="loadSampleSurvival()">Survival Sample</button>
+            </div>
+        </div>
+        <div class="master-label-card" id="timeSeriesSection">
+            <label>Shared X-Labels (Space separated)</label>
+            <input type="text" id="timePointsInput" class="text-input" value="Day1 Day3 Day7" oninput="updatePlot()">
+        </div>
+
+        <div id="groupDataSection">
+            <h3>2. Group Data</h3>
+            <div style="display:flex; align-items:center; gap:8px; margin: 6px 0 12px;">
+                <label style="margin:0;">Graph Title</label>
+                <input type="text" id="chartTitleInput" class="text-input" placeholder="Title" oninput="syncChartTitle()" style="width:100px;">
+                <input type="number" id="titleFontSize" value="10" oninput="updatePlot()" style="width:50px;" aria-label="Title font size">
+                <label style="font-weight: normal; font-size: 0.75rem; color: var(--muted); display:flex; align-items:center; gap:4px; margin:0;">
+                    <input type="checkbox" id="titleItalic" onchange="updatePlot()">
+                    Italic
+                </label>
+            </div>
+            <div id="groupsContainer">
+                </div>
+            <button class="btn-add" onclick="addNewGroup()">+ Add New Group</button>
+        </div>
+        <div class="master-label-card" style="margin-top: 15px;">
+            <label style="margin-bottom:6px;">Axis Labels</label>
+            <div style="display:grid; gap:6px;">
+                <input type="text" id="xAxisLabel" class="text-input" placeholder="X-axis label" oninput="updatePlot()">
+                <div style="display:flex; gap:6px; align-items:center;">
+                    <span style="font-size:0.75rem; color: var(--muted);">X距離</span>
+                    <button type="button" class="btn-mini" onclick="adjustLabelOffset('xLabelOffset', -2)">←</button>
+                    <input type="number" id="xLabelOffset" value="25" oninput="updatePlot()" style="width:50px;">
+                    <button type="button" class="btn-mini" onclick="adjustLabelOffset('xLabelOffset', 2)">→</button>
+                    <span style="font-size:0.75rem; color: var(--muted); margin-left:6px;">Font</span>
+                    <input type="number" id="xAxisFontSize" value="10" oninput="updatePlot()" style="width:50px;">
+                </div>
+                <input type="text" id="yAxisLabel" class="text-input" placeholder="Y-axis label" oninput="updatePlot()">
+                <div style="display:flex; gap:6px; align-items:center;">
+                    <span style="font-size:0.75rem; color: var(--muted);">Y距離</span>
+                    <button type="button" class="btn-mini" onclick="adjustLabelOffset('yLabelOffset', -2)">←</button>
+                    <input type="number" id="yLabelOffset" value="25" oninput="updatePlot()" style="width:50px;">
+                    <button type="button" class="btn-mini" onclick="adjustLabelOffset('yLabelOffset', 2)">→</button>
+                    <span style="font-size:0.75rem; color: var(--muted); margin-left:6px;">Font</span>
+                    <input type="number" id="yAxisFontSize" value="10" oninput="updatePlot()" style="width:50px;">
+                </div>
+            </div>
+        </div>
+        <div class="master-label-card" id="survivalSection" style="margin-top: 15px; display:none;">
+            <label style="margin-bottom:6px; display:flex; gap:8px; align-items:center;">
+                Survival Mode (Kaplan-Meier)
+            </label>
+            <textarea id="survivalData" placeholder="Group[TAB]Sample[TAB]Day of death" oninput="updatePlot()" style="height: 90px;"></textarea>
+            <div style="display:flex; gap:6px; align-items:center; margin-top:6px;">
+                <span style="font-size:0.75rem; color: var(--muted);">X Max</span>
+                <input type="number" id="survivalXMax" value="0" min="0" oninput="this.dataset.auto='false'; updatePlot()" style="width:70px;">
+                <small style="color: var(--muted);">0=Auto</small>
+            </div>
+            <div style="display:flex; gap:12px; align-items:center; margin-top:6px; flex-wrap: wrap;">
+                <label style="font-size:0.75rem; color: var(--muted);"><input type="checkbox" id="survivalYAxisPercent" onchange="updatePlot()"> Y-axis %</label>
+            </div>
+            <small style="color: var(--muted);">Format: Group, Sample, Day (tab-separated)</small>
+        </div>
+        <div style="margin-top: 30px; border-top: 1px solid #ddd; padding-top: 15px;">
+            <details open style="font-size: 0.85rem; color: #444; cursor: pointer;">
+                <summary style="font-weight: bold; margin-bottom: 10px; color: #d9480f;">⚠EEUsage Notes & Disclaimer</summary>
+                <div style="background: #fffcf0; padding: 12px; border: 1px solid #ffe8cc; border-radius: 8px; line-height: 1.6;">
+                    <strong>Purpose</strong><br>
+                    This tool is designed for rapid visualization of raw spreadsheet data, with the primary goal of <strong>checking dot distributions and overall trends at a glance</strong>.<br><br>
+                    
+                    <strong>Statistical Results</strong><br>
+                    Reported p-values and significance flags are approximate. <strong>For theses or publications, always verify final statistics using dedicated software (GraphPad Prism, R, etc.).</strong><br><br>
+                    
+                    <small style="color: var(--muted);">
+                        By using this tool, you acknowledge that the developer assumes no liability for decisions made from its output. Final scientific judgment remains the user's responsibility.
+                    </small>
+                    
+                    <div style="margin-top: 12px; font-size: 0.75rem; border-top: 1px dashed var(--border); padding-top: 8px; text-align: right;">
+                        © 2024-2026 Michito Hamada.
+                    </div>
+                </div>
+            </details>
+        </div>
+    </div>
+
+    <div class="resizer" id="resizerHandle"></div>
+
+    <div class="main-content">
+        <div class="preview-row">
+            <div class="preview-wrapper">
+                <div style="grid-column: 1; grid-row: 1; display: flex; flex-direction: column; align-items: center; gap: 6px;">
+                    <label style="font-size: 0.75rem; color: var(--muted); display: flex; align-items: center; gap: 6px;">
+                        H:
+                        <input type="number" id="chartHeightVal" value="200" min="200" max="800" oninput="syncChartSize('height')" style="width: 60px; padding: 2px 4px;">
+                    </label>
+                </div>
+                <div id="svg-wrapper">
+                    <div id="svg-container"></div>
+                    <div class="resize-handle resize-tl" data-handle="tl"></div>
+                    <div class="resize-handle resize-tr" data-handle="tr"></div>
+                    <div class="resize-handle resize-bl" data-handle="bl"></div>
+                    <div class="resize-handle resize-br" data-handle="br"></div>
+                    <div class="handle-pos" id="handlePosLeft" style="left: 6px; top: -18px;">L: 0</div>
+                    <div style="position:absolute; right:-220px; top: 6px; width: 210px; font-size: 0.75rem; color: var(--muted); line-height: 1.4;">
+                        Tip: Drag the title, Y-axis label, and legend to reposition.
+                    </div>
+                </div>
+                <div class="graph-controls-row">
+                    <div class="panel legend-panel" id="lineOptionsCard">
+                        <div class="option-list">
+                            <label style="font-weight: normal;"><input type="checkbox" id="showLines" onchange="updatePlot()"> Show Lines</label>
+                            <label style="font-weight: normal;"><input type="checkbox" id="showBars" onchange="handleShowBarsToggle()" checked> Show Bars</label>
+                        </div>
+                        <div class="option-list" id="lineOptionsBody">
+                            <label style="font-weight: normal;"><input type="checkbox" id="showSampleLines" onchange="updatePlot()"> Sample Lines</label>
+                            <label style="font-weight: normal;"><input type="checkbox" id="showMean" onchange="updatePlot()" checked> Mean Line / Dots</label>
+                            <label style="font-weight: normal;"><input type="checkbox" id="showMeanDots" onchange="updatePlot()" checked> Mean Dots (Line Mode)</label>
+                            <label style="font-weight: normal;"><input type="checkbox" id="showErrorBars" onchange="updatePlot()" checked> Error Bars</label>
+                        </div>
+                    </div>
+                    <div class="panel legend-panel bar-width-card" id="barWidthCard">
+                        <div class="control-item">
+                            <label for="barWidthSlider">Bar Width</label>
+                            <input type="range" id="barWidthSlider" min="6" max="80" value="28" oninput="syncBarWidthFromSlider()">
+                            <div style="font-size:0.8rem; color: var(--muted);">Current: <span id="barWidthValue">28</span> px</div>
+                        </div>
+                        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                            <button type="button" class="btn-mini" style="width:auto;" onclick="resetBarPositions()">Reset Bar Positions</button>
+                            <button type="button" class="btn-mini" style="width:auto;" onclick="undoBarChanges()">Undo</button>
+                            <button type="button" class="btn-mini" style="width:auto;" onclick="redoBarChanges()">Redo</button>
+                        </div>
+                    </div>
+                    <div class="panel legend-panel">
+                        <div class="option-list">
+                            <label style="font-weight: normal;"><input type="checkbox" id="showPostHoc" onchange="updatePlot()"> Show Post-hoc (Dunnett)</label>
+                            <label style="font-weight: normal;"><input type="checkbox" id="autoBrackets" onchange="updatePlot()" checked> Auto Brackets (*)</label>
+                        </div>
+                        <div class="control-item">
+                            <label>Bracket Offset <span id="bracketOffsetVal" style="font-weight: normal; color: var(--muted);">center</span></label>
+                            <input type="range" id="bracketOffset" min="-60" max="120" value="0" oninput="updatePlot()">
+                        </div>
+                    </div>
+                    <div class="panel legend-panel">
+                        <div class="card-grid-2">
+                            <div class="control-item">
+                                <label for="fontSizeX">Font (X)</label>
+                                <input type="number" id="fontSizeX" value="10" oninput="updatePlot()">
+                            </div>
+                            <div class="control-item">
+                                <label for="dotSize">Dot Size</label>
+                                <div class="compact-row">
+                                    <input type="number" id="dotSize" min="1" max="15" value="3" oninput="updatePlot()">
+                                </div>
+                            </div>
+                            <div class="control-item">
+                                <label for="fontSizeY">Font (Y)</label>
+                                <input type="number" id="fontSizeY" value="10" oninput="updatePlot()">
+                            </div>
+                            <div class="control-item">
+                                <label for="jitter">Dot Jitter</label>
+                                <div class="compact-row">
+                                    <input type="number" id="jitter" min="0" max="40" value="8" oninput="updatePlot()">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="panel legend-panel panel-tight">
+                        <h4 style="margin:0 0 6px 0; font-size:0.9rem; color: var(--muted);">Y-Axis</h4>
+                        <div class="ymax-inline" style="align-items:flex-end;">
+                            <div class="control-item" style="min-width:70px;">
+                                <label for="yMinInput">Y-Min</label>
+                                <input type="number" id="yMinInput" value="0" data-auto="true" oninput="updatePlot()" aria-label="Y minimum">
+                            </div>
+                            <div class="control-item" style="min-width:70px;">
+                                <label for="yMaxInput">Y-Max</label>
+                                <input type="number" id="yMaxInput" value="0" data-auto="true" oninput="this.dataset.auto='false'; updatePlot();" aria-label="Y maximum">
+                            </div>
+                            <button type="button" class="btn-mini" style="width:auto;" onclick="setAutoYMax()">Auto</button>
+                        </div>
+                        <div class="control-item">
+                            <label for="numTicks">Ticks</label>
+                            <input type="number" id="numTicks" value="5" min="2" max="12" oninput="updatePlot()">
+                        </div>
+                        <div class="control-item">
+                            <label style="margin-bottom:2px;">Error Bar</label>
+                            <input type="hidden" id="errorType" value="se">
+                            <div class="error-toggle">
+                                <button type="button" id="err-sem" class="btn-mini active" style="width:auto;" onclick="setErrorType('se')">SEM</button>
+                                <button type="button" id="err-sd" class="btn-mini" style="width:auto;" onclick="setErrorType('sd')">SD</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="panel legend-panel">
+                        <div class="control-item">
+                            <label style="font-weight: normal; margin: 0;"><input type="checkbox" id="showLegend" checked onchange="updatePlot()"> Show Legend</label>
+                        </div>
+                        <input type="hidden" id="legendState" value="95,10">
+                        <div class="legend-row">
+                            <label for="legendFontSize">Font</label>
+                            <input type="number" id="legendFontSize" value="10" oninput="updatePlot()" class="legend-input">
+                        </div>
+                    </div>
+                </div>
+                <div style="grid-column: 2; grid-row: 3; display: flex; align-items: center; gap: 10px; justify-self: start;">
+                    <label style="font-size: 0.75rem; color: var(--muted); display: flex; align-items: center; gap: 6px;">
+                        W:
+                        <input type="number" id="chartWidthVal" value="300" min="10" max="1000" oninput="syncChartSize('width')" style="width: 60px; padding: 2px 4px;">
+                    </label>
+                </div>
+                <div style="grid-column: 2; grid-row: 4; width: 100%; display: flex; gap: 8px; justify-content: flex-start; justify-self: start;">
+                    <button class="btn-dl btn-small" onclick="downloadSVG()">Download for PPT</button>
+                    <button class="btn-dl btn-small" onclick="copySvgToClipboard()" style="background:#007bff;">Copy SVG (for Illustrator or Affinity)</button>
+                </div>
+                <div style="grid-column: 2; grid-row: 5; width: 100%; justify-self: start;">
+                    <div class="config-profile">
+                        <div class="config-title">Configuration Profile</div>
+                        <div class="config-actions">
+                            <button type="button" class="btn-profile" onclick="downloadProfile()">Download (JSON)</button>
+                            <button type="button" class="btn-profile" onclick="document.getElementById('profileInput').click()">Load</button>
+                            <button type="button" class="btn-profile" onclick="resetProfile()">Reset</button>
+                            <input type="file" id="profileInput" accept="application/json" style="display:none;" onchange="loadProfile(event)">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="stats-panel">
+            <h3>3. Statistical Analysis Board</h3>
+            <div id="statsTableContainer">
+                <p style="color: var(--muted);">チEEタをE力すると、各タイムポイントごとの検定結果がここに表示されます、E/p>
+            </div>
+            <div style="margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap;">
+                <button class="btn-dl btn-small" onclick="downloadCSV()" style="background:#6c757d;">Download CSV</button>
+                <button class="btn-dl btn-small" onclick="downloadStatsCode()" style="background:#6c757d;">Download Statistical Code for R</button>
+            </div>
+        </div>
+
+        <div class="stats-panel">
+            <h3>4. Calculation Details</h3>
+            <div class="code-board" id="calcDetails" style="background:#f8f9fb; color:#333; white-space:pre-wrap;"></div>
+        </div>
+
+        <div class="stats-panel">
+            <h3>5. Statistical Methods & Source Code</h3>
+            <div class="code-board" id="codeDisplay">// 統計アルゴリズムを表示中...</div>
+        </div>
+    </div>
+<div id="toast" class="toast">Copied</div>
+</div>
+
+<script>
+let groupCount = 0;
+const defaultColors = ['#ffffff', '#ffcccc', '#ccffcc', '#ccccff', '#ffffcc', '#ffccff'];
+let plotMetrics = null;
+let chartOffsetX = 0;
+let chartOffsetY = 0;
+let activeProfile = null;
+let explorerData = null;
+let explorerSelectedCol = -1;
+let explorerSelecting = false;
+let explorerSelection = null;
+let explorerFiles = [];
+let stagedGroups = {};
+let explorerColWidths = [];
+let explorerColRecommendedWidths = [];
+let explorerColHardMinWidths = [];
+const explorerColMinWidth = 10;
+const explorerColMaxWidth = 800;
+const explorerColDefaultWidth = 120;
+const explorerColStorageKey = 'csvPreviewColWidths';
+const explorerHideDecimalsKey = 'csvPreviewHideDecimals';
+let explorerHideDecimals = null;
+const explorerMinBase = 10;
+const explorerMinCharPx = 7;
+const explorerMinFloor = 10;
+const explorerMinCeil = 380;
+const explorerMinFloorFirst = 10;
+const explorerHardMinWidth = 10;
+const explorerHardMinWidthFirst = 10;
+const explorerMinSampleRows = 30;
+let explorerOpenedOnce = false;
+let explorerWorkbook = null;
+let explorerSheetName = null;
+let explorerLastPointer = { x: 0, y: 0 };
+let explorerDocMouseUpHandlerAdded = false;
+let stagedGroupNames = {};
+let explorerTreeState = {};
+let barWidthState = 28;
+let groupOffsetX = [];
+let groupLabelOffsetY = [];
+let titleOffsetX = 0;
+let titleOffsetY = 0;
+let xAxisLabelOffsetX = 0;
+let xAxisLabelOffsetY = 0;
+let yAxisLabelOffsetX = 0;
+let yAxisLabelOffsetY = 0;
+let undoStack = [];
+let redoStack = [];
+let draggingBarIndex = null;
+let draggingStartOffset = 0;
+let draggingBarStartX = 0;
+let draggingGroupLabelIndex = null;
+let draggingGroupLabelStartY = 0;
+let draggingGroupLabelStartOffset = 0;
+let draggingAxisLabel = null;
+let draggingAxisLabelStartX = 0;
+let draggingAxisLabelStartY = 0;
+let draggingAxisLabelStartOffsetX = 0;
+let draggingAxisLabelStartOffsetY = 0;
+let autoBottomPad = 0;
+let targetBottomPad = 0;
+let stableZeroSince = null;
+let lastGrowAt = 0;
+const NEVER_SHRINK = true;
+let updateRafScheduled = false;
+
+function addNewGroup(name = "", color = "", data = "") {
+    groupCount++;
+    const id = `group_${groupCount}`;
+    const container = document.getElementById('groupsContainer');
+    const colorVal = color || defaultColors[(groupCount - 1) % defaultColors.length];
+    const nameVal = name || (groupCount === 1 ? "WT" : groupCount === 2 ? "KO" : `Drug ${groupCount - 2}`);
+
+    const card = document.createElement('div');
+    card.className = 'group-card';
+    card.id = id;
+    card.innerHTML = `
+        <button class="btn-remove" onclick="removeGroup('${id}')">×</button>
+        <div class="group-header">
+            <input type="text" class="group-name-input" value="${nameVal}" style="width:100px" oninput="updatePlot()">
+            <input type="color" class="group-color-input" value="${colorVal}" oninput="updatePlot()">
+        </div>
+        <textarea class="group-data-input" placeholder="Paste data here..." oninput="handlePaste('${id}')">${data}</textarea>
+        <div class="paste-preview"></div>
+    `;
+    container.appendChild(card);
+    updatePlot();
+}
+
+function parseDelimitedText(text) {
+    const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+    const nonEmpty = lines.filter(l => l.trim() !== '');
+    if (nonEmpty.length === 0) return [];
+    const sample = nonEmpty[0];
+    const delim = sample.includes('\t') ? '\t' : ',';
+    return nonEmpty.map(line => line.split(delim));
+}
+
+function updateExplorerFileList(files) {
+    const list = document.getElementById('explorerFileList');
+    if (!list) return;
+    list.innerHTML = '<option value=\"\">Select a file</option>';
+    files.forEach((file, idx) => {
+        const opt = document.createElement('option');
+        opt.value = String(idx);
+        opt.textContent = file.webkitRelativePath || file.name;
+        list.appendChild(opt);
+    });
+}
+
+function updateExplorerSheetList(sheetNames) {
+    const select = document.getElementById('explorerSheetSelect');
+    if (!select) return;
+    select.innerHTML = '';
+    if (!sheetNames || sheetNames.length === 0) {
+        select.innerHTML = '<option value=\"\">No sheet</option>';
+        select.disabled = true;
+        return;
+    }
+    sheetNames.forEach((name, idx) => {
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name || `Sheet ${idx + 1}`;
+        select.appendChild(opt);
+    });
+    select.disabled = false;
+}
+
+function loadExplorerSheet(name) {
+    if (!explorerWorkbook || !name) return;
+    explorerSheetName = name;
+    const sheet = explorerWorkbook.Sheets[name];
+    explorerData = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+    explorerSelectedCol = -1;
+    explorerSelection = null;
+    hideExplorerMenu();
+    renderStagedGroups();
+    renderExplorerPreview();
+}
+
+function readExplorerFile(file) {
+    if (!file) return;
+    const ext = file.name.toLowerCase();
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+        if (ext.endsWith('.xlsx') || ext.endsWith('.xls')) {
+            const data = evt.target.result;
+            explorerWorkbook = XLSX.read(data, { type: 'binary' });
+            updateExplorerSheetList(explorerWorkbook.SheetNames || []);
+            const first = explorerWorkbook.SheetNames[0];
+            if (first) {
+                loadExplorerSheet(first);
+            }
+            return;
+        } else {
+            explorerWorkbook = null;
+            updateExplorerSheetList([]);
+            const text = evt.target.result;
+            explorerData = parseDelimitedText(text);
+        }
+        explorerSelectedCol = -1;
+        explorerSelection = null;
+        hideExplorerMenu();
+        renderStagedGroups();
+        renderExplorerPreview();
+    };
+    if (ext.endsWith('.xlsx') || ext.endsWith('.xls')) {
+        reader.readAsBinaryString(file);
+    } else {
+        reader.readAsText(file);
+    }
+}
+
+function collectDroppedFiles(dataTransfer) {
+    return new Promise((resolve) => {
+        if (!dataTransfer) return resolve([]);
+        const items = dataTransfer.items ? Array.from(dataTransfer.items) : [];
+        const pending = [];
+        const files = [];
+
+        const walkEntry = (entry) => new Promise((res) => {
+            if (!entry) return res([]);
+            if (entry.isFile) {
+                entry.file((file) => res([file]), () => res([]));
+            } else if (entry.isDirectory && entry.createReader) {
+                const reader = entry.createReader();
+                const all = [];
+                const readChunk = () => {
+                    reader.readEntries((entries) => {
+                        if (!entries.length) {
+                            Promise.all(all.map(walkEntry)).then((nested) => res(nested.flat()));
+                            return;
+                        }
+                        all.push(...entries);
+                        readChunk();
+                    }, () => res([]));
+                };
+                readChunk();
+            } else {
+                res([]);
+            }
+        });
+
+        if (items.length) {
+            items.forEach((item) => {
+                if (item.kind === 'file') {
+                    const entry = item.webkitGetAsEntry ? item.webkitGetAsEntry() : null;
+                    if (entry && (entry.isDirectory || entry.isFile)) {
+                        pending.push(walkEntry(entry));
+                    } else {
+                        const f = item.getAsFile && item.getAsFile();
+                        if (f) files.push(f);
+                    }
+                }
+            });
+            if (pending.length) {
+                Promise.all(pending).then((nested) => {
+                    resolve(files.concat(...nested));
+                });
+                return;
+            }
+        }
+        resolve(Array.from(dataTransfer.files || []));
+    });
+}
+
+function filterExplorerFiles(fileList) {
+    const allowed = ['.csv', '.tsv', '.xlsx', '.xls'];
+    return Array.from(fileList || []).filter((file) => {
+        const name = file.name.toLowerCase();
+        return allowed.some((ext) => name.endsWith(ext));
+    });
+}
+
+function handleExplorerFiles(fileList) {
+    const filtered = filterExplorerFiles(fileList);
+    if (!filtered.length) return;
+    explorerFiles = filtered;
+    explorerTreeState = {};
+    updateExplorerFileList(explorerFiles);
+    renderExplorerTree(explorerFiles);
+    const explorerFileList = document.getElementById('explorerFileList');
+    if (explorerFiles[0] && explorerFileList) {
+        explorerFileList.value = '0';
+        readExplorerFile(explorerFiles[0]);
+    }
+}
+
+function renderExplorerPreview() {
+    const area = document.getElementById('explorer-preview-area');
+    if (!area) return;
+    const prevWrap = area.querySelector('.explorer-preview-wrap');
+    const prevScrollTop = prevWrap ? prevWrap.scrollTop : 0;
+    const prevScrollLeft = prevWrap ? prevWrap.scrollLeft : 0;
+    if (!explorerData || explorerData.length === 0) {
+        area.innerHTML = '<p class=\"explorer-note\">No preview available.</p>';
+        return;
+    }
+    const maxRows = Math.min(200, explorerData.length);
+    const maxCols = Math.max(...explorerData.slice(0, maxRows).map(r => r.length), 0);
+    if (maxCols === 0) {
+        area.innerHTML = '<p class="explorer-note">No preview available.</p>';
+        return;
+    }
+    const hideDecimals = getExplorerHideDecimals();
+    explorerColRecommendedWidths = computeExplorerColRecommendedWidths(maxCols, maxRows);
+    explorerColHardMinWidths = computeExplorerColHardMinWidths(maxCols);
+    const colWidths = normalizeExplorerColWidths(maxCols);
+    const allWidth = Math.round(colWidths.reduce((a, b) => a + b, 0) / Math.max(1, colWidths.length));
+    let html = `
+        <div class="explorer-col-controls">
+            <label>All columns width</label>
+            <input type="range" id="explorerColWidthRange" min="${explorerColMinWidth}" max="${explorerColMaxWidth}" value="${allWidth}">
+            <input type="number" id="explorerColWidthInput" min="${explorerColMinWidth}" max="${explorerColMaxWidth}" value="${allWidth}" style="width:80px;">
+            <button type="button" id="explorerColWidthMinus">-20px</button>
+            <button type="button" id="explorerColWidthPlus">+20px</button>
+            <button type="button" id="explorerColWidthReset">Reset</button>
+            <label style="display:flex; align-items:center; gap:6px;">
+                <input type="checkbox" id="explorerHideDecimalsToggle"${hideDecimals ? ' checked' : ''}>
+                Hide decimals
+            </label>
+        </div>
+        <div class="explorer-preview-wrap"><table class="explorer-table fixed"><colgroup>`;
+    for (let c = 0; c < maxCols; c++) {
+        html += `<col style="width:${colWidths[c]}px;">`;
+    }
+    html += '</colgroup><thead><tr>';
+    for (let c = 0; c < maxCols; c++) {
+        const headerLabel = `Col ${c + 1}`;
+        html += `<th data-col="${c}" title="${escapeHtml(headerLabel)}">${headerLabel}<span class="col-resizer" data-col="${c}"></span></th>`;
+    }
+    html += '</tr></thead><tbody>';
+    for (let r = 0; r < maxRows; r++) {
+        html += '<tr>';
+        for (let c = 0; c < maxCols; c++) {
+            const val = explorerData[r] && explorerData[r][c] !== undefined ? explorerData[r][c] : '';
+            const displayVal = formatExplorerCellValue(val);
+            const rawTitle = val === null || val === undefined ? '' : String(val);
+            const cellClass = explorerSelection && r >= explorerSelection.r1 && r <= explorerSelection.r2 && c >= explorerSelection.c1 && c <= explorerSelection.c2
+                ? 'explorer-selected'
+                : '';
+            html += `<td class=\"${cellClass}\" data-row=\"${r}\" data-col=\"${c}\" title="${escapeHtml(rawTitle)}">${escapeHtml(String(displayVal))}</td>`;
+        }
+        html += '</tr>';
+    }
+    html += '</tbody></table></div>';
+    html += '<div class=\"explorer-note\">Click-drag to select cells, then release to stage.</div>';
+    area.innerHTML = html;
+    const wrap = area.querySelector('.explorer-preview-wrap');
+    if (wrap) {
+        wrap.scrollTop = prevScrollTop;
+        wrap.scrollLeft = prevScrollLeft;
+    }
+    bindExplorerTable();
+    bindExplorerColumnControls(maxCols);
+    bindExplorerColumnResizers();
+}
+
+function clampExplorerColWidth(value, minOverride) {
+    const minVal = Number.isFinite(minOverride) ? minOverride : explorerColMinWidth;
+    const num = Math.round(Number(value) || explorerColDefaultWidth);
+    return Math.min(explorerColMaxWidth, Math.max(minVal, num));
+}
+
+function escapeHtml(value) {
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function getExplorerHideDecimals() {
+    if (explorerHideDecimals === null) {
+        explorerHideDecimals = localStorage.getItem(explorerHideDecimalsKey) === 'true';
+    }
+    return explorerHideDecimals;
+}
+
+function computeExplorerColRecommendedWidths(colCount, rowCount) {
+    if (!colCount) return [];
+    const rowsToCheck = Math.min(explorerMinSampleRows, rowCount || 0);
+    const recommended = [];
+    for (let c = 0; c < colCount; c++) {
+        let maxLen = `Col ${c + 1}`.length;
+        for (let r = 0; r < rowsToCheck; r++) {
+            const val = explorerData[r] && explorerData[r][c] !== undefined ? explorerData[r][c] : '';
+            const len = String(val ?? '').length;
+            if (len > maxLen) maxLen = len;
+        }
+        const estimate = explorerMinBase + maxLen * explorerMinCharPx;
+        const floor = c === 0 ? explorerMinFloorFirst : explorerMinFloor;
+        recommended[c] = clampExplorerColWidth(estimate, floor);
+        if (recommended[c] > explorerMinCeil) recommended[c] = explorerMinCeil;
+    }
+    return recommended;
+}
+
+function computeExplorerColHardMinWidths(colCount) {
+    return Array.from({ length: colCount }, (_, idx) =>
+        idx === 0 ? explorerHardMinWidthFirst : explorerHardMinWidth
+    );
+}
+
+function setExplorerHideDecimals(value) {
+    explorerHideDecimals = !!value;
+    try {
+        localStorage.setItem(explorerHideDecimalsKey, explorerHideDecimals ? 'true' : 'false');
+    } catch (err) {
+        // Ignore storage errors.
+    }
+}
+
+function formatExplorerCellValue(value) {
+    if (!getExplorerHideDecimals()) return value ?? '';
+    if (value === null || value === undefined) return '';
+    if (typeof value === 'string' && value.trim() === '') return '';
+    const num = typeof value === 'number' ? value : Number(String(value).trim());
+    if (!Number.isFinite(num)) return value;
+    return Math.trunc(num);
+}
+
+function loadExplorerColWidths() {
+    try {
+        const raw = localStorage.getItem(explorerColStorageKey);
+        const parsed = raw ? JSON.parse(raw) : [];
+        if (!Array.isArray(parsed)) return [];
+        return parsed.map((w, idx) => clampExplorerColWidth(w, explorerColHardMinWidths[idx]));
+    } catch (err) {
+        return [];
+    }
+}
+
+function saveExplorerColWidths() {
+    try {
+        localStorage.setItem(explorerColStorageKey, JSON.stringify(explorerColWidths));
+    } catch (err) {
+        // Ignore storage errors.
+    }
+}
+
+function normalizeExplorerColWidths(colCount) {
+    if (!colCount) {
+        explorerColWidths = [];
+        return explorerColWidths;
+    }
+    if (!explorerColWidths.length) {
+        explorerColWidths = loadExplorerColWidths();
+    }
+    let sanitized = explorerColWidths.filter(n => Number.isFinite(n) && n > 0)
+        .map((w, idx) => clampExplorerColWidth(w, explorerColHardMinWidths[idx]));
+    if (!sanitized.length) {
+        sanitized = Array.from({ length: colCount }, (_, idx) => {
+            const recommended = explorerColRecommendedWidths[idx] || explorerColDefaultWidth;
+            return clampExplorerColWidth(recommended, explorerColHardMinWidths[idx]);
+        });
+    }
+    if (sanitized.length < colCount) {
+        for (let i = sanitized.length; i < colCount; i++) {
+            const recommended = explorerColRecommendedWidths[i] || explorerColDefaultWidth;
+            sanitized.push(clampExplorerColWidth(recommended, explorerColHardMinWidths[i]));
+        }
+    }
+    if (sanitized.length > colCount) {
+        sanitized = sanitized.slice(0, colCount);
+    }
+    sanitized = sanitized.map((w, idx) => clampExplorerColWidth(w, explorerColHardMinWidths[idx]));
+    explorerColWidths = sanitized;
+    saveExplorerColWidths();
+    return explorerColWidths;
+}
+
+function applyExplorerColWidths() {
+    const table = document.querySelector('.explorer-table');
+    if (!table) return;
+    const cols = table.querySelectorAll('colgroup col');
+    const headers = table.querySelectorAll('thead th');
+    const rows = table.querySelectorAll('tbody tr');
+    let totalWidth = 0;
+    cols.forEach((col, idx) => {
+        const minVal = explorerColHardMinWidths[idx] ?? explorerColMinWidth;
+        const width = clampExplorerColWidth(explorerColWidths[idx] || explorerColDefaultWidth, minVal);
+        explorerColWidths[idx] = width;
+        col.style.width = `${width}px`;
+        totalWidth += width;
+    });
+    headers.forEach((th, idx) => {
+        const width = explorerColWidths[idx] || explorerColDefaultWidth;
+        th.style.width = `${width}px`;
+        th.style.maxWidth = `${width}px`;
+    });
+    rows.forEach((row) => {
+        const cells = row.children;
+        for (let i = 0; i < cells.length; i++) {
+            const width = explorerColWidths[i] || explorerColDefaultWidth;
+            cells[i].style.width = `${width}px`;
+            cells[i].style.maxWidth = `${width}px`;
+        }
+    });
+    if (totalWidth > 0) {
+        table.style.width = `${totalWidth}px`;
+    }
+}
+
+function updateExplorerColControlsValue() {
+    const range = document.getElementById('explorerColWidthRange');
+    const input = document.getElementById('explorerColWidthInput');
+    if (!range || !input || !explorerColWidths.length) return;
+    const avg = Math.round(explorerColWidths.reduce((a, b) => a + b, 0) / explorerColWidths.length);
+    range.value = avg;
+    input.value = avg;
+}
+
+function setAllExplorerColWidths(value) {
+    if (!explorerData || explorerData.length === 0) return;
+    const table = document.querySelector('.explorer-table');
+    const cols = table ? table.querySelectorAll('colgroup col') : [];
+    const colCount = cols.length;
+    if (colCount === 0) return;
+    const requested = Number(value) || 10;
+    explorerColWidths = Array.from({ length: colCount }, (_, idx) => {
+        const minVal = (explorerColHardMinWidths && explorerColHardMinWidths[idx]) ? explorerColHardMinWidths[idx] : 10;
+        return Math.max(requested, minVal);
+    });
+    applyExplorerColWidths();
+    saveExplorerColWidths();
+    updateExplorerColControlsValue();
+}
+
+function bumpAllExplorerColWidths(delta) {
+    explorerColWidths = explorerColWidths.map((w, idx) => {
+        const minVal = explorerColHardMinWidths[idx];
+        return clampExplorerColWidth(w + delta, minVal);
+    });
+    applyExplorerColWidths();
+    saveExplorerColWidths();
+    updateExplorerColControlsValue();
+}
+
+function bindExplorerColumnControls(maxCols) {
+    if (!maxCols) return;
+    const range = document.getElementById('explorerColWidthRange');
+    const input = document.getElementById('explorerColWidthInput');
+    const minus = document.getElementById('explorerColWidthMinus');
+    const plus = document.getElementById('explorerColWidthPlus');
+    const reset = document.getElementById('explorerColWidthReset');
+    const hideDecimalsToggle = document.getElementById('explorerHideDecimalsToggle');
+    if (range) {
+        range.addEventListener('input', () => setAllExplorerColWidths(range.value));
+    }
+    if (input) {
+        input.addEventListener('change', () => setAllExplorerColWidths(input.value));
+        input.addEventListener('input', () => setAllExplorerColWidths(input.value));
+    }
+    if (minus) {
+        minus.addEventListener('click', () => bumpAllExplorerColWidths(-20));
+    }
+    if (plus) {
+        plus.addEventListener('click', () => bumpAllExplorerColWidths(20));
+    }
+    if (reset) {
+        reset.addEventListener('click', () => {
+            explorerColWidths = explorerColRecommendedWidths.slice();
+            applyExplorerColWidths();
+            saveExplorerColWidths();
+            updateExplorerColControlsValue();
+        });
+    }
+    if (hideDecimalsToggle) {
+        hideDecimalsToggle.addEventListener('change', () => {
+            setExplorerHideDecimals(hideDecimalsToggle.checked);
+            renderExplorerPreview();
+        });
+    }
+    updateExplorerColControlsValue();
+}
+
+let explorerColResizeState = null;
+
+function handleExplorerColResizeMove(e) {
+    if (!explorerColResizeState) return;
+    const dx = e.clientX - explorerColResizeState.startX;
+    const minVal = explorerColHardMinWidths[explorerColResizeState.colIndex];
+    const next = clampExplorerColWidth(explorerColResizeState.startWidth + dx, minVal);
+    explorerColWidths[explorerColResizeState.colIndex] = next;
+    applyExplorerColWidths();
+    saveExplorerColWidths();
+}
+
+function handleExplorerColResizeEnd() {
+    explorerColResizeState = null;
+    document.body.classList.remove('no-select');
+    window.removeEventListener('pointermove', handleExplorerColResizeMove);
+}
+
+function bindExplorerColumnResizers() {
+    const resizers = document.querySelectorAll('.col-resizer');
+    resizers.forEach((resizer) => {
+        resizer.addEventListener('pointerdown', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const colIndex = parseInt(resizer.dataset.col || '0', 10);
+            const startWidth = explorerColWidths[colIndex] || explorerColDefaultWidth;
+            explorerColResizeState = { colIndex, startX: e.clientX, startWidth };
+            document.body.classList.add('no-select');
+            window.addEventListener('pointermove', handleExplorerColResizeMove);
+            window.addEventListener('pointerup', handleExplorerColResizeEnd, { once: true });
+        });
+        resizer.addEventListener('dblclick', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const colIndex = parseInt(resizer.dataset.col || '0', 10);
+            const recVal = explorerColRecommendedWidths[colIndex] || explorerColDefaultWidth;
+            const hardMin = explorerColHardMinWidths[colIndex];
+            explorerColWidths[colIndex] = clampExplorerColWidth(recVal, hardMin);
+            applyExplorerColWidths();
+            saveExplorerColWidths();
+            updateExplorerColControlsValue();
+        });
+    });
+}
+
+function renderStagedGroups() {
+    const area = document.getElementById('explorer-staged-area');
+    if (!area) return;
+    const groupIndices = Object.keys(stagedGroups).map(n => parseInt(n, 10)).filter(n => !isNaN(n));
+    const currentGroups = document.querySelectorAll('.group-card').length;
+    const maxGroup = Math.max(3, currentGroups, ...groupIndices, 3);
+    let html = '';
+    for (let i = 1; i <= maxGroup; i++) {
+        const val = stagedGroups[i] || '';
+        const nameVal = stagedGroupNames[i] || `Group ${i}`;
+        html += `
+            <div class="staged-item">
+                <label style="font-size:0.75rem; color:var(--explorer-muted);">Group ${i}</label>
+                <input type="text" data-staged-name="${i}" value="${nameVal}" style="width:100%; font-size:0.85rem; padding:4px 6px; border-radius:4px; border:1px solid var(--explorer-border); background:var(--explorer-card); color:var(--explorer-text);" oninput="updateStagedName(${i}, this.value)">
+                <textarea data-staged="${i}" oninput="updateStagedFromTextarea(${i}, this.value)">${val}</textarea>
+            </div>
+        `;
+    }
+    area.innerHTML = html;
+}
+
+function updateStagedFromTextarea(idx, value) {
+    stagedGroups[idx] = value;
+}
+function updateStagedName(idx, value) {
+    stagedGroupNames[idx] = value;
+}
+
+function collectStagedGroupsFromUI() {
+    const area = document.getElementById('explorer-staged-area');
+    if (!area) return;
+    const inputs = area.querySelectorAll('textarea[data-staged]');
+    stagedGroups = {};
+    stagedGroupNames = {};
+    inputs.forEach((ta) => {
+        const idx = parseInt(ta.dataset.staged, 10);
+        if (!isNaN(idx)) {
+            stagedGroups[idx] = ta.value;
+        }
+    });
+    const nameInputs = area.querySelectorAll('input[data-staged-name]');
+    nameInputs.forEach((inp) => {
+        const idx = parseInt(inp.dataset.stagedName, 10);
+        if (!isNaN(idx)) {
+            stagedGroupNames[idx] = inp.value;
+        }
+    });
+}
+
+function buildExplorerTree(files, basePrefix = '') {
+    const root = { children: {}, files: [] };
+    files.forEach((file, idx) => {
+        const rawPathFull = (file.webkitRelativePath || file.name || '').replace(/\\\\/g, '/').replace(/\\+/g, '/');
+        const rawPath = basePrefix && rawPathFull.startsWith(basePrefix)
+            ? rawPathFull.slice(basePrefix.length).replace(/^\//, '').replace(/^\//, '')
+            : rawPathFull;
+        const parts = rawPath.split('/').filter(Boolean);
+        const fileName = parts.pop() || file.name;
+        let node = root;
+        let pathAcc = '';
+        parts.forEach((part) => {
+            pathAcc = pathAcc ? `${pathAcc}/${part}` : part;
+            if (!node.children[part]) {
+                node.children[part] = { children: {}, files: [], path: pathAcc };
+            }
+            node = node.children[part];
+        });
+        node.files.push({ name: fileName, idx, fullPath: rawPath || fileName });
+    });
+    return root;
+}
+
+function renderExplorerTree(files) {
+    const treeEl = document.getElementById('explorerFileTree');
+    if (!treeEl) return;
+    if (!files || !files.length) {
+        treeEl.innerHTML = '<div class="tree-note">フォルダをドロチEEするとチEー表示されます、E/div>';
+        return;
+    }
+    const relPaths = files.map((file) => (file.webkitRelativePath || file.name || '').replace(/\\\\/g, '/').replace(/\\+/g, '/'));
+    const commonRoot = (() => {
+        if (!relPaths.length) return '';
+        const splitPaths = relPaths.map(p => p.split('/').filter(Boolean));
+        const minLen = Math.min(...splitPaths.map(p => p.length));
+        const parts = [];
+        for (let i = 0; i < minLen; i++) {
+            const seg = splitPaths[0][i];
+            if (splitPaths.every(p => p[i] === seg)) {
+                parts.push(seg);
+            } else {
+                break;
+            }
+        }
+        return parts.length ? parts.join('/') : '';
+    })();
+    const root = buildExplorerTree(files, commonRoot ? `${commonRoot}` : '');
+    const lines = [];
+
+    function renderNode(node, name, depth, parentPath) {
+        const key = parentPath ? `${parentPath}/${name}` : name || '';
+        const isRoot = depth === 0;
+        const indent = depth > 0 ? 'padding-left:' + (depth * 12) + 'px;' : '';
+        if (!isRoot) {
+            const hasChildren = Object.keys(node.children).length > 0 || node.files.length > 0;
+            const open = explorerTreeState[key] === true;
+            const toggle = hasChildren ? (open ? '▼' : '▶') : '•';
+            lines.push(`
+                <div class="tree-node" style="${indent}">
+                    <div class="tree-dir" data-path="${key}" data-open="${open}">
+                        <span class="tree-toggle">${toggle}</span>
+                        <span class="tree-name">${name}</span>
+                    </div>
+                </div>
+            `);
+            if (!open) return;
+        }
+        const childKeys = Object.keys(node.children).sort();
+        childKeys.forEach((child) => renderNode(node.children[child], child, depth + 1, key));
+        node.files
+            .sort((a, b) => a.name.localeCompare(b.name))
+            .forEach((f) => {
+                const fIndent = 'padding-left:' + ((depth + 1) * 12) + 'px;';
+                lines.push(`
+                    <div class="tree-node" style="${fIndent}">
+                        <div class="tree-file" data-file-idx="${f.idx}">
+                            <span class="tree-toggle">•</span>
+                            <span class="tree-name">${f.name}</span>
+                        </div>
+                    </div>
+                `);
+            });
+    }
+
+    renderNode(root, '', 0, '');
+    treeEl.innerHTML = lines.join('');
+
+    treeEl.querySelectorAll('.tree-dir').forEach((dir) => {
+        dir.addEventListener('click', () => {
+            const path = dir.dataset.path || '';
+            const open = dir.dataset.open === 'true';
+            explorerTreeState[path] = !open;
+            treeEl.querySelectorAll('.tree-dir.selected, .tree-file.selected').forEach((el) => el.classList.remove('selected'));
+            dir.classList.add('selected');
+            renderExplorerTree(files);
+        });
+    });
+    treeEl.querySelectorAll('.tree-file').forEach((fileEl) => {
+        fileEl.addEventListener('click', () => {
+            const idx = parseInt(fileEl.dataset.fileIdx, 10);
+            if (!isNaN(idx) && files[idx]) {
+                treeEl.querySelectorAll('.tree-dir.selected, .tree-file.selected').forEach((el) => el.classList.remove('selected'));
+                fileEl.classList.add('selected');
+                const explorerFileList = document.getElementById('explorerFileList');
+                if (explorerFileList) explorerFileList.value = String(idx);
+                readExplorerFile(files[idx]);
+            }
+        });
+    });
+}
+
+function bindExplorerTable() {
+    const table = document.querySelector('.explorer-table');
+    if (!table) return;
+    table.addEventListener('mousedown', (e) => {
+        if (e.button !== 0) return; // only left-click initiates selection
+        const cell = e.target.closest('td');
+        if (!cell) return;
+        explorerSelecting = true;
+        const r = parseInt(cell.dataset.row, 10);
+        const c = parseInt(cell.dataset.col, 10);
+        explorerSelection = { r1: r, r2: r, c1: c, c2: c };
+        explorerLastPointer = { x: e.clientX, y: e.clientY };
+        hideExplorerMenu();
+        updateExplorerSelectionHighlight(table);
+    });
+    table.addEventListener('mouseover', (e) => {
+        if (!explorerSelecting) return;
+        const cell = e.target.closest('td');
+        if (!cell) return;
+        const r = parseInt(cell.dataset.row, 10);
+        const c = parseInt(cell.dataset.col, 10);
+        explorerSelection.r2 = r;
+        explorerSelection.c2 = c;
+        normalizeExplorerSelection();
+        explorerLastPointer = { x: e.clientX, y: e.clientY };
+        updateExplorerSelectionHighlight(table);
+    });
+    table.addEventListener('mouseleave', () => {
+        if (explorerSelecting) {
+            updateExplorerSelectionHighlight(table);
+        }
+    });
+    table.addEventListener('mousemove', (e) => {
+        explorerLastPointer = { x: e.clientX, y: e.clientY };
+    });
+    table.addEventListener('contextmenu', (e) => {
+        const cell = e.target.closest('td');
+        if (!cell) return;
+        e.preventDefault();
+        const r = parseInt(cell.dataset.row, 10);
+        const c = parseInt(cell.dataset.col, 10);
+        const alreadySelected = explorerSelection
+            && r >= explorerSelection.r1 && r <= explorerSelection.r2
+            && c >= explorerSelection.c1 && c <= explorerSelection.c2;
+        if (!alreadySelected) {
+            explorerSelection = { r1: r, r2: r, c1: c, c2: c };
+            updateExplorerSelectionHighlight(table);
+        }
+        showExplorerMenu(e.clientX, e.clientY);
+    });
+    table.addEventListener('mouseup', (e) => {
+        explorerLastPointer = { x: e.clientX, y: e.clientY };
+        handleExplorerMouseUp(e);
+    });
+    if (!explorerDocMouseUpHandlerAdded) {
+        document.addEventListener('mouseup', handleExplorerMouseUp);
+        explorerDocMouseUpHandlerAdded = true;
+    }
+}
+
+function normalizeExplorerSelection() {
+    if (!explorerSelection) return;
+    const rMin = Math.min(explorerSelection.r1, explorerSelection.r2);
+    const rMax = Math.max(explorerSelection.r1, explorerSelection.r2);
+    const cMin = Math.min(explorerSelection.c1, explorerSelection.c2);
+    const cMax = Math.max(explorerSelection.c1, explorerSelection.c2);
+    explorerSelection = { r1: rMin, r2: rMax, c1: cMin, c2: cMax };
+}
+
+function updateExplorerSelectionHighlight(table) {
+    if (!table) table = document.querySelector('.explorer-table');
+    if (!table) return;
+    const cells = table.querySelectorAll('td');
+    cells.forEach((cell) => {
+        const r = parseInt(cell.dataset.row, 10);
+        const c = parseInt(cell.dataset.col, 10);
+        const selected = explorerSelection && r >= explorerSelection.r1 && r <= explorerSelection.r2 && c >= explorerSelection.c1 && c <= explorerSelection.c2;
+        cell.classList.toggle('explorer-selected', !!selected);
+    });
+}
+
+function handleExplorerMouseUp(e) {
+    if (!explorerSelecting) return;
+    explorerSelecting = false;
+    normalizeExplorerSelection();
+    updateExplorerSelectionHighlight();
+    explorerLastPointer = {
+        x: (e && e.clientX) || explorerLastPointer.x,
+        y: (e && e.clientY) || explorerLastPointer.y
+    };
+    const x = explorerLastPointer.x;
+    const y = explorerLastPointer.y;
+    showExplorerMenu(x, y);
+}
+
+function onBarPointerDown(e) {
+    const rect = e.target.closest('rect.bar-draggable');
+    if (!rect) return;
+    const idx = parseInt(rect.dataset.groupIndex, 10);
+    if (isNaN(idx)) return;
+    e.preventDefault();
+    pushUndoState();
+    draggingBarIndex = idx;
+    draggingStartOffset = groupOffsetX[idx] || 0;
+    draggingBarStartX = e.clientX;
+    rect.classList.add('dragging');
+    window.addEventListener('pointermove', onBarPointerMove);
+    window.addEventListener('pointerup', onBarPointerUp, { once: true });
+}
+
+function onGroupLabelPointerDown(e) {
+    const label = e.target.closest('text.group-label');
+    if (!label) return false;
+    const idx = parseInt(label.dataset.groupIndex, 10);
+    if (isNaN(idx)) return true;
+    e.preventDefault();
+    draggingGroupLabelIndex = idx;
+    draggingGroupLabelStartY = e.clientY;
+    draggingGroupLabelStartOffset = groupLabelOffsetY[idx] || 0;
+    window.addEventListener('pointermove', onGroupLabelPointerMove);
+    window.addEventListener('pointerup', onGroupLabelPointerUp, { once: true });
+    return true;
+}
+
+function onGroupLabelPointerMove(e) {
+    if (draggingGroupLabelIndex === null) return;
+    const svgContainer = document.getElementById('svg-container');
+    const svg = svgContainer ? svgContainer.querySelector('svg') : null;
+    if (!svg || !plotMetrics) return;
+    const rect = svg.getBoundingClientRect();
+    if (!rect.height) return;
+    const dyPx = e.clientY - draggingGroupLabelStartY;
+    const scaleY = plotMetrics.height / rect.height;
+    groupLabelOffsetY[draggingGroupLabelIndex] = draggingGroupLabelStartOffset + (dyPx * scaleY);
+    updatePlot();
+}
+
+function onGroupLabelPointerUp() {
+    draggingGroupLabelIndex = null;
+    window.removeEventListener('pointermove', onGroupLabelPointerMove);
+    updatePlot();
+}
+
+function onAxisLabelPointerDown(e) {
+    const label = e.target.closest('text.axis-label');
+    if (!label) return false;
+    const type = label.dataset.label;
+    if (!type) return false;
+    e.preventDefault();
+    draggingAxisLabel = type;
+    draggingAxisLabelStartX = e.clientX;
+    draggingAxisLabelStartY = e.clientY;
+    if (type === 'title') {
+        draggingAxisLabelStartOffsetX = titleOffsetX;
+        draggingAxisLabelStartOffsetY = titleOffsetY;
+    } else if (type === 'x') {
+        draggingAxisLabelStartOffsetX = xAxisLabelOffsetX;
+        draggingAxisLabelStartOffsetY = xAxisLabelOffsetY;
+    } else if (type === 'y') {
+        draggingAxisLabelStartOffsetX = yAxisLabelOffsetX;
+        draggingAxisLabelStartOffsetY = yAxisLabelOffsetY;
+    }
+    window.addEventListener('pointermove', onAxisLabelPointerMove);
+    window.addEventListener('pointerup', onAxisLabelPointerUp, { once: true });
+    return true;
+}
+
+function onAxisLabelPointerMove(e) {
+    if (!draggingAxisLabel) return;
+    const scale = getDisplayScale();
+    const dx = (e.clientX - draggingAxisLabelStartX) / scale;
+    const dy = (e.clientY - draggingAxisLabelStartY) / scale;
+    if (draggingAxisLabel === 'title') {
+        titleOffsetX = draggingAxisLabelStartOffsetX + dx;
+        titleOffsetY = draggingAxisLabelStartOffsetY + dy;
+    } else if (draggingAxisLabel === 'x') {
+        xAxisLabelOffsetX = draggingAxisLabelStartOffsetX + dx;
+        xAxisLabelOffsetY = draggingAxisLabelStartOffsetY + dy;
+    } else if (draggingAxisLabel === 'y') {
+        yAxisLabelOffsetX = draggingAxisLabelStartOffsetX + dx;
+        yAxisLabelOffsetY = draggingAxisLabelStartOffsetY + dy;
+    }
+    updatePlot();
+}
+
+function onAxisLabelPointerUp() {
+    draggingAxisLabel = null;
+    window.removeEventListener('pointermove', onAxisLabelPointerMove);
+    updatePlot();
+}
+
+function onBarPointerMove(e) {
+    if (draggingBarIndex === null) return;
+    const step = e.shiftKey ? 10 : (e.altKey ? 1 : 2);
+    const scale = getDisplayScale();
+    const dx = (e.clientX - draggingBarStartX) / scale;
+    const snapped = Math.round(dx / step) * step;
+    groupOffsetX[draggingBarIndex] = draggingStartOffset + snapped;
+    updatePlot();
+}
+
+function onBarPointerUp() {
+    draggingBarIndex = null;
+    window.removeEventListener('pointermove', onBarPointerMove);
+    updatePlot();
+}
+
+function getDisplayScale() {
+    const svg = document.querySelector('#svg-container svg');
+    if (!svg || !plotMetrics) return 1;
+    const rect = svg.getBoundingClientRect();
+    if (!rect.width || !plotMetrics.width) return 1;
+    return rect.width / plotMetrics.width;
+}
+
+function showExplorerMenu(x, y) {
+    const menu = document.getElementById('explorerMenu');
+    if (!menu) return;
+    menu.style.left = `${x + 10}px`;
+    menu.style.top = `${y + 10}px`;
+    menu.style.display = 'block';
+}
+
+function hideExplorerMenu() {
+    const menu = document.getElementById('explorerMenu');
+    if (menu) menu.style.display = 'none';
+}
+
+function sendExplorerToGroup(groupNumber) {
+    if (!explorerData || !explorerSelection) return;
+    const idxInput = document.getElementById('explorerGroupIndexMenu');
+    const targetGroup = groupNumber || (idxInput ? parseInt(idxInput.value, 10) : 1);
+    if (!targetGroup || targetGroup < 1) return;
+    if (!stagedGroupNames[targetGroup]) {
+        stagedGroupNames[targetGroup] = `Group ${targetGroup}`;
+    }
+    const rows = [];
+    for (let r = explorerSelection.r1; r <= explorerSelection.r2; r++) {
+        for (let c = explorerSelection.c1; c <= explorerSelection.c2; c++) {
+            if (!explorerData[r]) continue;
+            const val = explorerData[r][c];
+            if (val !== undefined && val !== null && val !== '' && !isNaN(parseFloat(val))) {
+                rows.push(parseFloat(val));
+            }
+        }
+    }
+    stagedGroups[targetGroup] = rows.join('\n');
+    renderStagedGroups();
+    renderExplorerTree(explorerFiles);
+    hideExplorerMenu();
+}
+
+function sendExplorerToTitle() {
+    if (!explorerData || !explorerSelection) return;
+    if (explorerSelection.r1 !== explorerSelection.r2 || explorerSelection.c1 !== explorerSelection.c2) {
+        showToast('Select a single cell for title.');
+        return;
+    }
+    const value = explorerData[explorerSelection.r1]?.[explorerSelection.c1];
+    if (value === undefined || value === null) return;
+    const text = String(value).trim();
+    if (!text) return;
+    const mainEl = document.getElementById('chartTitleInput');
+    if (mainEl) mainEl.value = text;
+    updateExplorerTitleDisplay();
+    updatePlot();
+    hideExplorerMenu();
+}
+
+function applyStagedGroups() {
+    // 1. Collect staged UI data
+    collectStagedGroupsFromUI();
+
+    // 2. Determine staged group indices
+    const indices = Object.keys(stagedGroups)
+        .map(n => parseInt(n, 10))
+        .filter(n => !isNaN(n) && stagedGroups[n] && stagedGroups[n].trim() !== '');
+
+    if (indices.length === 0) {
+        showToast("No data staged to send.");
+        return;
+    }
+
+    // A. Force comparison mode
+    const plotMode = document.getElementById('plotMode');
+    if (plotMode) {
+        plotMode.value = 'comparison';
+        setPlotMode();
+    }
+
+    // B. Ensure group IDs are contiguous
+    renumberGroups();
+
+    // 3. Apply staged data
+    indices.sort((a, b) => a - b).forEach((groupNum) => {
+        // Create missing groups up to target
+        while (groupCount < groupNum) {
+            const isTarget = (groupCount + 1) === groupNum;
+            const initialData = isTarget ? (stagedGroups[groupNum] || "") : "";
+            const initialName = isTarget ? (stagedGroupNames[groupNum] || `Group ${groupNum}`) : "";
+            addNewGroup(initialName, "", initialData);
+        }
+
+        // Update group data
+        const target = document.getElementById(`group_${groupNum}`);
+        
+        if (target) {
+            const textarea = target.querySelector('.group-data-input');
+            if (textarea) {
+                textarea.value = stagedGroups[groupNum] || '';
+            }
+            const nameInput = target.querySelector('.group-name-input');
+            if (nameInput) {
+                nameInput.value = stagedGroupNames[groupNum] || nameInput.value;
+            }
+
+            handlePaste(target.id);
+        }
+    });
+
+    // 4. Auto-reset Y max
+    const yMaxInputEl = document.getElementById('yMaxInput');
+    if (yMaxInputEl) {
+        yMaxInputEl.dataset.auto = 'true';
+        yMaxInputEl.value = '0';
+    }
+    updatePlot();
+
+    const explorerPanel = document.getElementById('explorer-panel');
+    if (explorerPanel) {
+        explorerPanel.classList.remove('pinned');
+    }
+    
+    showToast(`Updated ${indices.length} group(s)!`);
+}
+
+function clearStagedGroups() {
+    stagedGroups = {};
+    stagedGroupNames = {};
+    renderStagedGroups();
+}
+
+function clearGroupDataInputs(skipUpdate = false) {
+    const cards = document.querySelectorAll('.group-card');
+    cards.forEach((card) => {
+        const textarea = card.querySelector('.group-data-input');
+        if (textarea) textarea.value = '';
+        const preview = card.querySelector('.paste-preview');
+        if (preview) preview.innerHTML = '';
+    });
+    if (!skipUpdate) updatePlot();
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    if (document.getElementById('plotMode')) {
+        setPlotMode();
+    }
+    updateExplorerTitleDisplay();
+    const themeSelect = document.getElementById('themeSelect');
+    const systemMedia = window.matchMedia('(prefers-color-scheme: dark)');
+    const applyTheme = (mode) => {
+        const theme = mode === 'system' ? (systemMedia.matches ? 'dark' : 'light') : mode;
+        document.documentElement.setAttribute('data-theme', theme);
+        updatePlot();
+    };
+    const storedTheme = localStorage.getItem('plotTheme') || 'system';
+    if (themeSelect) themeSelect.value = storedTheme;
+    applyTheme(storedTheme);
+    if (themeSelect) {
+        themeSelect.addEventListener('change', () => {
+            localStorage.setItem('plotTheme', themeSelect.value);
+            applyTheme(themeSelect.value);
+        });
+    }
+    systemMedia.addEventListener('change', () => {
+        const current = localStorage.getItem('plotTheme') || 'system';
+        if (current === 'system') applyTheme('system');
+    });
+    const svgContainer = document.getElementById('svg-container');
+    let draggingLegend = false;
+
+    if (svgContainer) {
+        svgContainer.addEventListener('mousedown', (e) => {
+            const target = e.target;
+            const legendGroup = target && target.closest ? target.closest('#legend-group') : null;
+            if (legendGroup) {
+                draggingLegend = true;
+                e.preventDefault();
+            }
+        });
+        window.addEventListener('mousemove', (e) => {
+            if (!draggingLegend || !plotMetrics) return;
+            const legendState = document.getElementById('legendState');
+            const svg = svgContainer.querySelector('svg');
+            if (!legendState || !svg) return;
+            const rect = svg.getBoundingClientRect();
+            const scale = rect.width && plotMetrics.width ? (rect.width / plotMetrics.width) : 1;
+            const x = (e.clientX - rect.left) / scale - plotMetrics.pL;
+            const y = (e.clientY - rect.top) / scale - plotMetrics.pT;
+            const xPercent = Math.max(0, Math.min(100, (x / plotMetrics.graphW) * 100));
+            const yPercent = Math.max(0, Math.min(100, (y / plotMetrics.graphH) * 100));
+            legendState.value = `${xPercent.toFixed(2)},${yPercent.toFixed(2)}`;
+            updatePlot();
+        });
+        window.addEventListener('mouseup', () => {
+            draggingLegend = false;
+        });
+        svgContainer.addEventListener('pointerdown', (e) => {
+            if (onAxisLabelPointerDown(e)) return;
+            if (onGroupLabelPointerDown(e)) return;
+            onBarPointerDown(e);
+        });
+    }
+
+    const explorerPanel = document.getElementById('explorer-panel');
+    const explorerHandle = document.getElementById('explorer-handle');
+    const explorerHideBtn = document.getElementById('explorerHideBtn');
+    if (explorerHandle && explorerPanel) {
+        explorerHandle.addEventListener('click', () => {
+            explorerPanel.classList.toggle('pinned');
+        });
+    }
+    if (explorerPanel) {
+        explorerPanel.addEventListener('mouseenter', () => {
+            explorerPanel.classList.add('pinned');
+            const explorerMode = document.getElementById('explorerMode');
+            const plotMode = document.getElementById('plotMode');
+            if (explorerMode && plotMode) {
+                explorerMode.value = plotMode.value;
+            }
+        });
+    }
+    if (explorerHideBtn && explorerPanel) {
+        explorerHideBtn.addEventListener('click', () => {
+            explorerPanel.classList.remove('pinned');
+        });
+    }
+    const explorerDirInput = document.getElementById('explorerDirInput');
+    const explorerFileList = document.getElementById('explorerFileList');
+    const explorerSheetSelect = document.getElementById('explorerSheetSelect');
+    const explorerDropZone = document.getElementById('explorerDropZone');
+    if (explorerDirInput) {
+        explorerDirInput.addEventListener('change', (e) => {
+            handleExplorerFiles(e.target.files || []);
+        });
+    }
+    if (explorerFileList) {
+        explorerFileList.addEventListener('change', (e) => {
+            const idx = parseInt(e.target.value, 10);
+            if (!isNaN(idx) && explorerFiles[idx]) {
+                readExplorerFile(explorerFiles[idx]);
+            }
+        });
+    }
+    if (explorerSheetSelect) {
+        explorerSheetSelect.addEventListener('change', (e) => {
+            const name = e.target.value;
+            if (name) {
+                loadExplorerSheet(name);
+            }
+        });
+    }
+    if (explorerDropZone) {
+        ['dragover', 'dragenter'].forEach((evt) => {
+            explorerDropZone.addEventListener(evt, (e) => {
+                e.preventDefault();
+                explorerDropZone.classList.add('dragging');
+            });
+        });
+        ['dragleave', 'drop'].forEach((evt) => {
+            explorerDropZone.addEventListener(evt, (e) => {
+                e.preventDefault();
+                explorerDropZone.classList.remove('dragging');
+            });
+        });
+        explorerDropZone.addEventListener('drop', async (e) => {
+            const dropped = await collectDroppedFiles(e.dataTransfer);
+            handleExplorerFiles(dropped);
+        });
+    }
+    document.addEventListener('click', (e) => {
+        const menu = document.getElementById('explorerMenu');
+        if (!menu) return;
+        if (menu.contains(e.target)) return;
+        hideExplorerMenu();
+    });
+    renderStagedGroups();
+    const showBarsBox = document.getElementById('showBars');
+    if (showBarsBox) showBarsBox.checked = true;
+    syncBarControlsUI();
+    document.addEventListener('keydown', (e) => {
+        const key = (e.key || '').toLowerCase();
+        if ((e.ctrlKey || e.metaKey) && !e.shiftKey && key === 'z') {
+            e.preventDefault();
+            undoBarChanges();
+        } else if ((e.ctrlKey || e.metaKey) && (key === 'y' || (e.shiftKey && key === 'z'))) {
+            e.preventDefault();
+            redoBarChanges();
+        }
+    });
+    loadSampleComparison();
+});
+
+function resetGroups() {
+    const container = document.getElementById('groupsContainer');
+    container.innerHTML = '';
+    groupCount = 0;
+    groupOffsetX = [];
+    groupLabelOffsetY = [];
+}
+
+function loadSampleTimeline() {
+    document.getElementById('plotMode').value = 'time';
+    setPlotMode();
+    document.getElementById('timePointsInput').value = 'Day1 Day3 Day7 Day10';
+    resetGroups();
+    addNewGroup("WT", "#ffffff", "Day1\tDay3\tDay7\tDay10\n100\t250\t400\t520\n120\t280\t450\t560\n90\t230\t380\t500");
+    addNewGroup("KO", "#ffcccc", "Day1\tDay3\tDay7\tDay10\n80\t150\t200\t240\n70\t140\t220\t260\n85\t160\t190\t230");
+    applyActiveProfile();
+    updatePlot();
+}
+
+function loadSampleComparison() {
+    document.getElementById('plotMode').value = 'comparison';
+    setPlotMode();
+    document.getElementById('timePointsInput').value = 'Data';
+    resetGroups();
+    addNewGroup("Control", "#ffffff", "12.1\n11.5\n10.9\n12.8\n11.7");
+    addNewGroup("Treatment", "#ffcccc", "15.2\n14.6\n16.1\n15.8\n14.9");
+    document.getElementById('showBars').checked = true;
+    syncBarControlsUI();
+    applyActiveProfile();
+    updatePlot();
+}
+
+function ensureGroupOffsets(len) {
+    for (let i = 0; i < len; i++) {
+        if (groupOffsetX[i] === undefined || isNaN(groupOffsetX[i])) groupOffsetX[i] = 0;
+    }
+}
+
+function ensureGroupLabelOffsets(len) {
+    for (let i = 0; i < len; i++) {
+        if (groupLabelOffsetY[i] === undefined || isNaN(groupLabelOffsetY[i])) groupLabelOffsetY[i] = 0;
+    }
+}
+
+function snapshotBarState() {
+    return { offsets: groupOffsetX.slice(), barWidth: barWidthState };
+}
+
+function pushUndoState() {
+    const last = undoStack[undoStack.length - 1];
+    const snap = snapshotBarState();
+    if (last && JSON.stringify(last) === JSON.stringify(snap)) return;
+    undoStack.push(snap);
+    if (undoStack.length > 50) undoStack.shift();
+    redoStack = [];
+}
+
+function undoBarChanges() {
+    if (!undoStack.length) return;
+    const current = snapshotBarState();
+    const prev = undoStack.pop();
+    redoStack.push(current);
+    groupOffsetX = prev.offsets.slice();
+    barWidthState = prev.barWidth;
+    syncBarControlsUI();
+    updatePlot();
+}
+
+function redoBarChanges() {
+    if (!redoStack.length) return;
+    const current = snapshotBarState();
+    const next = redoStack.pop();
+    undoStack.push(current);
+    groupOffsetX = next.offsets.slice();
+    barWidthState = next.barWidth;
+    syncBarControlsUI();
+    updatePlot();
+}
+
+function resetBarPositions() {
+    pushUndoState();
+    groupOffsetX = groupOffsetX.map(() => 0);
+    syncBarControlsUI();
+    updatePlot();
+}
+
+function syncBarControlsUI() {
+    const showBars = document.getElementById('showBars');
+    const card = document.getElementById('barWidthCard');
+    const slider = document.getElementById('barWidthSlider');
+    const val = document.getElementById('barWidthValue');
+    if (slider) slider.value = barWidthState;
+    if (val) val.textContent = Math.round(barWidthState);
+    if (card && showBars) {
+        card.style.display = showBars.checked ? 'block' : 'none';
+    }
+}
+
+function handleShowBarsToggle() {
+    syncBarControlsUI();
+    updatePlot();
+}
+
+function syncBarWidthFromSlider() {
+    const slider = document.getElementById('barWidthSlider');
+    if (!slider) return;
+    const val = parseFloat(slider.value);
+    if (!isNaN(val) && val !== barWidthState) {
+        pushUndoState();
+        barWidthState = val;
+        redoStack = [];
+    }
+    syncBarControlsUI();
+    updatePlot();
+}
+
+function loadSampleSurvival() {
+    document.getElementById('plotMode').value = 'survival';
+    setPlotMode();
+    document.getElementById('survivalData').value = [
+        "WT\tS1\t5",
+        "WT\tS2\t8",
+        "WT\tS3\t9",
+        "WT\tS4\t12",
+        "WT\tS5\t15",
+        "KO\tS1\t4",
+        "KO\tS2\t6",
+        "KO\tS3\t7",
+        "KO\tS4\t10",
+        "KO\tS5\t11"
+    ].join("\n");
+    applyActiveProfile();
+    updatePlot();
+}
+
+function collectProfile() {
+    const mode = document.getElementById('plotMode').value;
+    const groupCards = document.querySelectorAll('.group-card');
+    const groups = Array.from(groupCards).map(card => ({
+        name: card.querySelector('.group-name-input').value,
+        color: card.querySelector('.group-color-input').value
+    }));
+    return {
+        version: 1,
+        mode,
+        timeLabels: document.getElementById('timePointsInput').value,
+        survival: {
+            xMax: document.getElementById('survivalXMax').value,
+            yPercent: document.getElementById('survivalYAxisPercent').checked
+        },
+        chartSize: {
+            width: document.getElementById('chartWidthVal').value,
+            height: document.getElementById('chartHeightVal').value
+        },
+        yAxis: {
+            min: document.getElementById('yMinInput').value,
+            max: document.getElementById('yMaxInput').value,
+            ticks: document.getElementById('numTicks').value,
+            errorType: document.getElementById('errorType').value
+        },
+        labels: {
+            title: document.getElementById('chartTitleInput')?.value || '',
+            titleItalic: document.getElementById('titleItalic')?.checked || false,
+            titleSize: document.getElementById('titleFontSize')?.value || '10',
+            x: document.getElementById('xAxisLabel').value,
+            y: document.getElementById('yAxisLabel').value,
+            xOffset: document.getElementById('xLabelOffset').value,
+            yOffset: document.getElementById('yLabelOffset').value,
+            xFont: document.getElementById('xAxisFontSize').value,
+            yFont: document.getElementById('yAxisFontSize').value
+        },
+        style: {
+            fontX: document.getElementById('fontSizeX').value,
+            fontY: document.getElementById('fontSizeY').value,
+            dotSize: document.getElementById('dotSize').value,
+            jitter: document.getElementById('jitter').value,
+            barWidth: barWidthState
+        },
+        barOffsets: groupOffsetX.slice(),
+        options: {
+            showLines: document.getElementById('showLines').checked,
+            showBars: document.getElementById('showBars').checked,
+            showSampleLines: document.getElementById('showSampleLines').checked,
+            showMean: document.getElementById('showMean').checked,
+            showMeanDots: document.getElementById('showMeanDots').checked,
+            showErrorBars: document.getElementById('showErrorBars').checked,
+            showPostHoc: document.getElementById('showPostHoc').checked,
+            autoBrackets: document.getElementById('autoBrackets').checked,
+            bracketOffset: document.getElementById('bracketOffset').value
+        },
+        groups
+    };
+}
+
+function applyActiveProfile() {
+    if (activeProfile) {
+        applyProfile(activeProfile);
+    }
+}
+
+function applyProfile(profile) {
+    if (!profile || typeof profile !== 'object') return;
+    if (profile.timeLabels !== undefined) {
+        document.getElementById('timePointsInput').value = profile.timeLabels;
+    }
+    if (profile.survival) {
+        document.getElementById('survivalXMax').value = profile.survival.xMax || '0';
+        document.getElementById('survivalYAxisPercent').checked = !!profile.survival.yPercent;
+    }
+    if (profile.chartSize) {
+        document.getElementById('chartWidthVal').value = profile.chartSize.width || 300;
+        document.getElementById('chartHeightVal').value = profile.chartSize.height || 200;
+    }
+    if (profile.yAxis) {
+        document.getElementById('yMinInput').value = profile.yAxis.min ?? '0';
+        document.getElementById('yMaxInput').value = profile.yAxis.max ?? '0';
+        document.getElementById('numTicks').value = profile.yAxis.ticks ?? '5';
+        document.getElementById('errorType').value = profile.yAxis.errorType || 'se';
+        setErrorType(profile.yAxis.errorType || 'se');
+    }
+    if (profile.labels) {
+        if (profile.labels.title !== undefined) {
+            const mainTitleEl = document.getElementById('chartTitleInput');
+            if (mainTitleEl) mainTitleEl.value = profile.labels.title || '';
+            updateExplorerTitleDisplay();
+        }
+        if (profile.labels.titleItalic !== undefined) {
+            const italicEl = document.getElementById('titleItalic');
+            if (italicEl) italicEl.checked = !!profile.labels.titleItalic;
+        }
+        if (profile.labels.titleSize !== undefined) {
+            const titleSizeEl = document.getElementById('titleFontSize');
+            if (titleSizeEl) titleSizeEl.value = profile.labels.titleSize || '10';
+        }
+        document.getElementById('xAxisLabel').value = profile.labels.x || '';
+        document.getElementById('yAxisLabel').value = profile.labels.y || '';
+        document.getElementById('xLabelOffset').value = profile.labels.xOffset || '25';
+        document.getElementById('yLabelOffset').value = profile.labels.yOffset || '25';
+        document.getElementById('xAxisFontSize').value = profile.labels.xFont || '10';
+        document.getElementById('yAxisFontSize').value = profile.labels.yFont || '10';
+    }
+    if (profile.style) {
+        document.getElementById('fontSizeX').value = profile.style.fontX || '10';
+        document.getElementById('fontSizeY').value = profile.style.fontY || '10';
+        document.getElementById('dotSize').value = profile.style.dotSize || '3';
+        document.getElementById('jitter').value = profile.style.jitter || '8';
+        if (profile.style.barWidth !== undefined) {
+            barWidthState = parseFloat(profile.style.barWidth) || barWidthState;
+        }
+    }
+    if (profile.options) {
+        document.getElementById('showLines').checked = !!profile.options.showLines;
+        document.getElementById('showBars').checked = true; // force bars on
+        document.getElementById('showSampleLines').checked = !!profile.options.showSampleLines;
+        document.getElementById('showMean').checked = !!profile.options.showMean;
+        document.getElementById('showMeanDots').checked = !!profile.options.showMeanDots;
+        document.getElementById('showErrorBars').checked = !!profile.options.showErrorBars;
+        document.getElementById('showPostHoc').checked = !!profile.options.showPostHoc;
+        document.getElementById('autoBrackets').checked = !!profile.options.autoBrackets;
+        document.getElementById('bracketOffset').value = profile.options.bracketOffset ?? '0';
+    }
+    if (Array.isArray(profile.groups)) {
+        const cards = Array.from(document.querySelectorAll('.group-card'));
+        profile.groups.forEach((g, idx) => {
+            const card = cards[idx];
+            if (card) {
+                const nameEl = card.querySelector('.group-name-input');
+                const colorEl = card.querySelector('.group-color-input');
+                if (nameEl && g.name) nameEl.value = g.name;
+                if (colorEl && g.color) colorEl.value = g.color;
+            } else {
+                addNewGroup(g.name, g.color, '');
+            }
+        });
+    }
+    if (Array.isArray(profile.barOffsets)) {
+        groupOffsetX = profile.barOffsets.map(v => parseFloat(v) || 0);
+    }
+    syncBarControlsUI();
+    updatePlot();
+}
+
+function downloadProfile() {
+    const profile = collectProfile();
+    const json = JSON.stringify(profile, null, 2);
+    const filename = `plot_profile_${new Date().getTime()}.json`;
+
+    const doFallbackDownload = () => {
+        const blob = new Blob([json], { type: 'application/json' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = filename;
+        link.click();
+    };
+
+    if (window.showSaveFilePicker) {
+        (async () => {
+            try {
+                const handle = await window.showSaveFilePicker({
+                    suggestedName: filename,
+                    types: [
+                        {
+                            description: 'JSON file',
+                            accept: { 'application/json': ['.json'] }
+                        }
+                    ]
+                });
+                const writable = await handle.createWritable();
+                await writable.write(json);
+                await writable.close();
+                showToast('Saved');
+                return;
+            } catch (err) {
+                if (err && err.name === 'AbortError') return;
+            }
+            doFallbackDownload();
+        })();
+    } else {
+        doFallbackDownload();
+    }
+}
+
+function loadProfile(event) {
+    const file = event.target.files && event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+        try {
+            const profile = JSON.parse(reader.result);
+            activeProfile = profile;
+            applyProfile(profile);
+        } catch (e) {
+            alert('Invalid profile JSON');
+        }
+    };
+    reader.readAsText(file);
+    event.target.value = '';
+}
+
+function resetProfile() {
+    activeProfile = null;
+    const defaultProfile = {
+        timeLabels: 'Day1 Day3 Day7',
+        survival: { xMax: '0', yPercent: false },
+        chartSize: { width: '300', height: '200' },
+        yAxis: { min: '0', max: '0', ticks: '5', errorType: 'se' },
+        labels: { x: '', y: '', titleItalic: false, titleSize: '10', xOffset: '25', yOffset: '25', xFont: '10', yFont: '10' },
+        style: { fontX: '10', fontY: '10', dotSize: '3', jitter: '8' },
+        options: {
+            showLines: false,
+            showBars: false,
+            showSampleLines: false,
+            showMean: true,
+            showMeanDots: true,
+            showErrorBars: true,
+            showPostHoc: false,
+            autoBrackets: true,
+            bracketOffset: '0'
+        },
+        groups: []
+    };
+    applyProfile(defaultProfile);
+    const cards = Array.from(document.querySelectorAll('.group-card'));
+    cards.forEach((card, idx) => {
+        const colorEl = card.querySelector('.group-color-input');
+        if (colorEl) colorEl.value = defaultColors[idx % defaultColors.length];
+    });
+    document.getElementById('showLegend').checked = true;
+    document.getElementById('legendFontSize').value = '10';
+    const italicEl = document.getElementById('titleItalic');
+    if (italicEl) italicEl.checked = false;
+    const titleSizeEl = document.getElementById('titleFontSize');
+    if (titleSizeEl) titleSizeEl.value = '10';
+    titleOffsetX = 0;
+    titleOffsetY = 0;
+    xAxisLabelOffsetX = 0;
+    xAxisLabelOffsetY = 0;
+    yAxisLabelOffsetX = 0;
+    yAxisLabelOffsetY = 0;
+    document.getElementById('legendState').value = '95,10';
+    updatePlot();
+}
+
+function removeGroup(id) {
+    const el = document.getElementById(id);
+    if (el) el.remove();
+    renumberGroups();
+    updatePlot();
+}
+
+function renumberGroups() {
+    const cards = document.querySelectorAll('.group-card');
+    groupCount = 0;
+    cards.forEach((card) => {
+        groupCount += 1;
+        const newId = `group_${groupCount}`;
+        card.id = newId;
+        const btn = card.querySelector('.btn-remove');
+        if (btn) {
+            btn.setAttribute('onclick', `removeGroup('${newId}')`);
+        }
+    });
+}
+
+function handlePaste(id) {
+    const card = document.getElementById(id);
+    const textarea = card.querySelector('.group-data-input');
+    const text = textarea.value.trim();
+    if (!text) return;
+
+    const lines = text.split('\n');
+    const firstLine = lines[0].split('\t');
+    const isHeader = firstLine.some(cell => isNaN(parseFloat(cell)) && cell !== "");
+    const hasDayLabel = firstLine.some(cell => /day\s*\d+/i.test(cell));
+
+    if (isHeader && hasDayLabel) {
+        document.getElementById('timePointsInput').value = firstLine.join(' ');
+        textarea.value = lines.slice(1).join('\n');
+    }
+    renderGroupTable(card);
+    updatePlot();
+}
+
+function parseData(text, expectedCount) {
+    const trimmed = text.trim();
+    if (!trimmed) return [];
+
+    const lines = trimmed.split('\n');
+    if (expectedCount === 1) {
+        const values = [];
+        lines.forEach(line => {
+            line.split(/[\t, ]+/).forEach(cell => {
+                const v = parseFloat(cell);
+                if (!Number.isNaN(v)) values.push(v);
+            });
+        });
+        return [values];
+    }
+
+    let startIdx = 0;
+    const firstLineCells = lines[0].split('\t');
+    if (firstLineCells.some(cell => isNaN(parseFloat(cell)) && cell !== "")) {
+        startIdx = 1;
+    }
+
+    const result = Array.from({ length: expectedCount }, () => []);
+    for (let i = startIdx; i < lines.length; i++) {
+        const values = lines[i].split('\t');
+        for (let j = 0; j < expectedCount; j++) {
+            if (values[j] !== undefined && values[j].trim() !== "" && !isNaN(values[j])) {
+                result[j].push(parseFloat(values[j]));
+            }
+        }
+    }
+    return result;
+}
+
+function getColumnCount(text) {
+    const line = text.trim().split('\n').find(l => l.trim() !== "");
+    if (!line) return 0;
+    return line.split('\t').length;
+}
+
+function renderGroupTable(card) {
+    if (!card) return;
+    const textarea = card.querySelector('.group-data-input');
+    const preview = card.querySelector('.paste-preview');
+    if (!textarea || !preview) return;
+    const text = textarea.value.trim();
+    if (!text) {
+        preview.innerHTML = '';
+        return;
+    }
+    const mode = document.getElementById('plotMode').value;
+    const timeLabels = mode === 'comparison'
+        ? ["Data"]
+        : document.getElementById('timePointsInput').value.trim().split(/[\t\s]+/).filter(s => s !== "");
+    const colCount = timeLabels.length > 0 ? timeLabels.length : getColumnCount(text);
+    if (colCount === 0) {
+        preview.innerHTML = '';
+        return;
+    }
+    const data = parseData(text, colCount);
+    const maxRows = Math.max(...data.map(arr => arr.length), 0);
+    const headers = timeLabels.length > 0 ? timeLabels : Array.from({ length: colCount }, (_, i) => `Col${i + 1}`);
+    let html = '<table><thead><tr>';
+    headers.forEach(h => { html += `<th>${h}</th>`; });
+    html += '</tr></thead><tbody>';
+    for (let r = 0; r < maxRows; r++) {
+        html += '<tr>';
+        for (let c = 0; c < colCount; c++) {
+            const val = data[c][r];
+            html += `<td>${val !== undefined ? val : ''}</td>`;
+        }
+        html += '</tr>';
+    }
+    html += '</tbody></table>';
+    preview.innerHTML = html;
+}
+
+function calcStats(arr) {
+    const n = arr.length;
+    if (n === 0) return { mean: 0, sd: 0, se: 0, n: 0 };
+    const mean = arr.reduce((a, b) => a + b, 0) / n;
+    const variance = n > 1 ? arr.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / (n - 1) : 0;
+    const sd = Math.sqrt(variance);
+    return { mean, sd, se: sd / Math.sqrt(n), n };
+}
+
+// --- 統計計算ユーチEリチE ---
+
+// 1. Welch's t-test (2群の平坁Eの比輁E
+function welchTTest(a, b) {
+    const s1 = calcStats(a), s2 = calcStats(b);
+    if (s1.n < 2 || s2.n < 2) return null;
+    const v1 = Math.pow(s1.sd, 2), v2 = Math.pow(s2.sd, 2);
+    const t = Math.abs(s1.mean - s2.mean) / Math.sqrt(v1 / s1.n + v2 / s2.n);
+    const df = Math.pow(v1 / s1.n + v2 / s2.n, 2) / (Math.pow(v1 / s1.n, 2) / (s1.n - 1) + Math.pow(v2 / s2.n, 2) / (s2.n - 1));
+    const p = 2 * (1 - tDistributionCDF(Math.abs(t), df));
+    return { t, p, df, method: "Welch's t-test" };
+}
+
+// 2. One-way ANOVA (3群以上E比輁E
+function oneWayANOVA(groupsData) {
+    const validGroups = groupsData.filter(g => g.length > 1);
+    if (validGroups.length < 3) return null;
+
+    const allData = validGroups.flat();
+    const grandMean = allData.reduce((a, b) => a + b, 0) / allData.length;
+
+    let ssBetween = 0, ssWithin = 0;
+    validGroups.forEach(group => {
+        const m = group.reduce((a, b) => a + b, 0) / group.length;
+        ssBetween += group.length * Math.pow(m - grandMean, 2);
+        group.forEach(v => { ssWithin += Math.pow(v - m, 2); });
+    });
+
+    const dfBetween = validGroups.length - 1;
+    const dfWithin = allData.length - validGroups.length;
+    const msBetween = ssBetween / dfBetween;
+    const msWithin = ssWithin / dfWithin;
+    const f = msBetween / msWithin;
+
+    return { f, df1: dfBetween, df2: dfWithin, msWithin, method: "One-way ANOVA" };
+}
+
+// 3. Brunner-Munzel Test (非パラメトリチE)
+function brunnerMunzel(x, y) {
+    const n1 = x.length, n2 = y.length;
+    if (n1 < 2 || n2 < 2) return { p: 1.0, w: 0 };
+
+    const combined = [...x.map(v => ({ v, g: 1 })), ...y.map(v => ({ v, g: 2 }))].sort((a, b) => a.v - b.v);
+    for (let i = 0; i < combined.length; ) {
+        let j = i + 1;
+        while (j < combined.length && combined[j].v === combined[i].v) j += 1;
+        const rank = (i + 1 + j) / 2;
+        for (let k = i; k < j; k++) combined[k].r = rank;
+        i = j;
+    }
+
+    const r1 = combined.filter(d => d.g === 1).map(d => d.r);
+    const r2 = combined.filter(d => d.g === 2).map(d => d.r);
+
+    const m1 = r1.reduce((a, b) => a + b, 0) / n1;
+    const m2 = r2.reduce((a, b) => a + b, 0) / n2;
+
+    const v1 = r1.reduce((sum, ri) => sum + Math.pow(ri - m1, 2), 0) / (n1 - 1);
+    const v2 = r2.reduce((sum, rj) => sum + Math.pow(rj - m2, 2), 0) / (n2 - 1);
+
+    const denom = Math.sqrt(v1 / n1 + v2 / n2);
+    if (!Number.isFinite(denom) || denom === 0) return { p: 1.0, w: 0, df: 0 };
+    const w = (m1 - m2) / denom;
+
+    const df = Math.pow(v1 / n1 + v2 / n2, 2)
+        / (Math.pow(v1 / n1, 2) / (n1 - 1) + Math.pow(v2 / n2, 2) / (n2 - 1));
+
+    const p = 2 * (1 - tDistributionCDF(Math.abs(w), df));
+    return { p, w, df };
+}
+
+// 標準正規E币EE累積E币E数 (p値算E用)
+function normalCDF(x) {
+    const t = 1 / (1 + 0.2316419 * Math.abs(x));
+    const d = 0.3989423 * Math.exp(-x * x / 2);
+    const p = d * t * (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + 1.330274 * t))));
+    return x > 0 ? 1 - p : p;
+}
+
+function tDistributionCDF(t, df) {
+    if (!Number.isFinite(t) || !Number.isFinite(df) || df <= 0) return NaN;
+    const x = df / (df + t * t);
+    const a = df / 2;
+    const b = 0.5;
+    const ib = ibeta(x, a, b);
+    return t >= 0 ? 1 - 0.5 * ib : 0.5 * ib;
+}
+
+function niceCeil(val) {
+    if (val <= 0) return 10;
+    const exp = Math.pow(10, Math.floor(Math.log10(val)));
+    let first = Math.floor(val / exp);
+    const second = Math.floor((val / exp - first) * 10);
+    if (second > 0) first += 1;
+    return first * exp;
+}
+
+// 正剁E完EベEタ関数の近似ロジチEE統計関数で共通利用EE
+function ibeta(x, a, b) {
+    let bt = (x > 0 && x < 1) ? Math.exp(logGamma(a + b) - logGamma(a) - logGamma(b) + a * Math.log(x) + b * Math.log(1 - x)) : 0;
+    if (x < (a + 1) / (a + b + 2)) return bt * betacf(x, a, b) / a;
+    return 1 - bt * betacf(1 - x, b, a) / b;
+}
+function logGamma(z) {
+    const c = [76.18009172947146, -86.50532032941677, 24.01409824083091, -1.231739572450155, 0.1208650973866179e-2, -0.5395239384953e-5];
+    let x = y = z, tmp = x + 5.5;
+    tmp -= (x + 0.5) * Math.log(tmp);
+    let ser = 1.000000000190015;
+    for (let i = 0; i < 6; i++) ser += c[i] / ++y;
+    return -tmp + Math.log(2.5066282746310005 * ser / x);
+}
+function betacf(x, a, b) {
+    let qab = a + b, qap = a + 1, qam = a - 1, c = 1, d = 1 - qab * x / qap;
+    if (Math.abs(d) < 1e-10) d = 1e-10;
+    d = 1 / d;
+    let h = d;
+    for (let m = 1; m <= 100; m++) {
+        let m2 = 2 * m, aa = m * (b - m) * x / ((qam + m2) * (a + m2));
+        d = 1 + aa * d; if (Math.abs(d) < 1e-10) d = 1e-10;
+        c = 1 + aa / c; if (Math.abs(c) < 1e-10) c = 1e-10;
+        d = 1 / d; h *= d * c;
+        aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2));
+        d = 1 + aa * d; if (Math.abs(d) < 1e-10) d = 1e-10;
+        c = 1 + aa / c; if (Math.abs(c) < 1e-10) c = 1e-10;
+        d = 1 / d; h *= d * c;
+        if (Math.abs(h - 1) < 1e-7) break;
+    }
+    return h;
+}
+
+// --- 追加EF刁EEらP値を算Eする関数EENOVA用EE---
+function fDistributionP(F, df1, df2) {
+    if (F <= 0) return 1.0;
+    // 簡易的な不完EベEタ関数による近似EEanilla JSでの実裁EE
+    const x = df2 / (df2 + df1 * F);
+    const a = df2 / 2;
+    const b = df1 / 2;
+
+    return ibeta(x, a, b);
+}
+
+// --- Dunnett's Test 簡易実裁E(Control vs Others) ---
+function runDunnett(groupsData, msWithin, dfWithin) {
+    const control = groupsData[0];
+    const results = [];
+    const n1 = control.length;
+    const mean1 = control.reduce((a, b) => a + b, 0) / n1;
+
+    for (let i = 1; i < groupsData.length; i++) {
+        const treat = groupsData[i];
+        const n2 = treat.length;
+        const mean2 = treat.reduce((a, b) => a + b, 0) / n2;
+
+        // 標準誤差 (ANOVAのMSwithinを使用)
+        const se = Math.sqrt(msWithin * (1 / n1 + 1 / n2));
+        const tVal = Math.abs(mean1 - mean2) / se;
+
+        // P値の近似 (Bonferroni調整を加えたt刁EE似)
+        const k = groupsData.length - 1;
+        const rawP = 2 * (1 - studentTCDF(tVal, dfWithin));
+        const adjustedP = Math.min(1.0, rawP * k);
+
+        results.push({
+            targetName: `Group ${i + 1}`,
+            p: adjustedP,
+            isSig: adjustedP < 0.05
+        });
+    }
+    return results;
+}
+
+// 自由度dfのt刁EE積E币E数 (簡易近似)
+function studentTCDF(t, df) {
+    const x = df / (df + t * t);
+    return 1 - 0.5 * ibeta(x, df / 2, 0.5);
+}
+
+// P値に応じたアスタリスクを返す
+function getStars(p) {
+    if (p < 0.01) return "**";
+    if (p < 0.05) return "*";
+    return "";
+}
+
+function getCssVar(name) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+// ブラケチE描画用の関数
+function drawBracket(x1, x2, y, stars, fontSize) {
+    const tickH = 6; // カギ線E端の長ぁE
+    const axisColor = getCssVar('--svg-ink') || 'black';
+    return `
+    <g class="sig-bracket" stroke="${axisColor}" fill="none" stroke-width="1.2">
+        <path d="M ${x1} ${y} L ${x1} ${y - tickH} L ${x2} ${y - tickH} L ${x2} ${y}" />
+        <text x="${(x1 + x2) / 2}" y="${y - tickH - 2}" fill="${axisColor}" stroke="none"
+              text-anchor="middle" font-size="${fontSize * 1.2}" font-family="Arial" font-weight="bold">${stars}</text>
+    </g>`;
+}
+
+function updateCodeDisplay() {
+    const code = `// --- Analysis Logic Used ---
+// 1. Welch's T-Test: assumes unequal variance.
+// 2. Brunner-Munzel: robust non-parametric test.
+
+${brunnerMunzel.toString()}
+
+${welchTTest.toString()}`;
+    document.getElementById('codeDisplay').textContent = code;
+}
+
+function setPlotMode() {
+    const mode = document.getElementById('plotMode').value;
+    const timeInput = document.getElementById('timePointsInput');
+    const groupSection = document.getElementById('groupDataSection');
+    const survivalSection = document.getElementById('survivalSection');
+    const timeSeriesSection = document.getElementById('timeSeriesSection');
+    const yMaxInputEl = document.getElementById('yMaxInput');
+
+    if (mode === 'survival') {
+        if (timeInput) timeInput.disabled = true;
+        if (groupSection) groupSection.style.display = 'none';
+        if (survivalSection) survivalSection.style.display = '';
+        if (timeSeriesSection) timeSeriesSection.style.display = 'none';
+        const xMaxEl = document.getElementById('survivalXMax');
+        if (xMaxEl) xMaxEl.dataset.auto = 'true';
+    } else {
+        if (timeInput) timeInput.disabled = false;
+        if (groupSection) groupSection.style.display = '';
+        if (survivalSection) survivalSection.style.display = 'none';
+        if (timeSeriesSection) timeSeriesSection.style.display = mode === 'time' ? '' : 'none';
+    }
+    const showLegendEl = document.getElementById('showLegend');
+    if (showLegendEl && mode === 'comparison') {
+        showLegendEl.checked = false;
+    }
+    if (yMaxInputEl) {
+        yMaxInputEl.dataset.auto = 'true';
+        yMaxInputEl.value = '0';
+    }
+    updatePlot();
+}
+
+function parseSurvivalData(text) {
+    const lines = text.trim().split('\n').map(l => l.trim()).filter(Boolean);
+    const groups = new Map();
+    lines.forEach(line => {
+        let parts = line.split(/\t|,/).map(p => p.trim());
+        if (parts.length < 3) {
+            parts = line.split(/\s+/).map(p => p.trim());
+        }
+        if (parts.length < 2) return;
+        const group = parts[0];
+        let day = NaN;
+        for (let i = parts.length - 1; i >= 0; i--) {
+            const val = parseFloat(parts[i]);
+            if (Number.isFinite(val)) {
+                day = val;
+                break;
+            }
+        }
+        if (!group || !Number.isFinite(day)) return;
+        if (!groups.has(group)) groups.set(group, []);
+        groups.get(group).push(day);
+    });
+    const groupConfigs = Array.from(groups.entries()).map(([name, times], idx) => ({
+        name,
+        color: defaultColors[idx % defaultColors.length],
+        times
+    }));
+    const maxTime = groupConfigs.reduce((max, g) => Math.max(max, ...g.times), 0);
+    return { groupConfigs, maxTime };
+}
+
+function computeSurvivalCurve(times) {
+    const sorted = times.slice().sort((a, b) => a - b);
+    let atRisk = sorted.length;
+    let surv = 1;
+    const steps = [{ t: 0, s: 1 }];
+    let i = 0;
+    while (i < sorted.length) {
+        const t = sorted[i];
+        let d = 0;
+        while (i < sorted.length && sorted[i] === t) {
+            d += 1;
+            i += 1;
+        }
+        if (atRisk > 0) {
+            surv = surv * (atRisk - d) / atRisk;
+        }
+        atRisk -= d;
+        steps.push({ t, s: surv });
+    }
+    return steps;
+}
+
+function logRankTestTwoGroups(timesA, timesB) {
+    const allTimes = Array.from(new Set([...timesA, ...timesB])).sort((a, b) => a - b);
+    let o1 = 0;
+    let e1 = 0;
+    let v1 = 0;
+
+    allTimes.forEach(t => {
+        const n1 = timesA.filter(x => x >= t).length;
+        const n2 = timesB.filter(x => x >= t).length;
+        const d1 = timesA.filter(x => x === t).length;
+        const d2 = timesB.filter(x => x === t).length;
+        const n = n1 + n2;
+        const d = d1 + d2;
+        if (n <= 1 || d === 0) return;
+        const expected1 = d * (n1 / n);
+        const variance = (n1 * n2 * d * (n - d)) / (n * n * (n - 1));
+        o1 += d1;
+        e1 += expected1;
+        v1 += variance;
+    });
+
+    if (v1 <= 0) return null;
+    const z = (o1 - e1) / Math.sqrt(v1);
+    const p = 2 * (1 - normalCDF(Math.abs(z)));
+    return { z, p };
+}
+
+function displayStats(timeLabels, groupConfigs) {
+    const nGroups = groupConfigs.length;
+    const mainHeader = nGroups === 2 ? "Welch's t (p)" : "ANOVA (p)";
+    const formatP = (p) => {
+        if (p === null || p === undefined || Number.isNaN(p)) return "-";
+        if (p < 0.0001) return "<0.0001";
+        return p.toFixed(4);
+    };
+    const formatPPrecise = (p) => {
+        if (p === null || p === undefined || Number.isNaN(p)) return "-";
+        if (p === 0) return "0";
+        return p.toExponential(20);
+    };
+    const formatPPreciseWithDecimal = (p) => {
+        if (p === null || p === undefined || Number.isNaN(p)) return "-";
+        if (p === 0) return "0";
+        const exp = p.toExponential(20);
+        const dec = p.toFixed(22).replace(/\.?0+$/, "");
+        return `${exp} (${dec})`;
+    };
+    const detailLines = [];
+
+    let html = `<table style="width:100%; border-collapse: collapse; font-size: 0.85rem;">
+        <thead>
+            <tr style="background:#f1f3f5; border-bottom:2px solid #dee2e6;">
+                <th style="padding:10px;">Time Point</th>
+                <th style="padding:10px;">${mainHeader}</th>
+                <th style="padding:10px;">${nGroups === 2 ? 'Brunner-Munzel (p)' : 'Dunnett (Post-hoc)'}</th>
+                <th style="padding:10px;">Significance</th>
+            </tr>
+        </thead>
+        <tbody>`;
+
+    timeLabels.forEach((label, tIdx) => {
+        const filteredGroups = groupConfigs.filter(g => (g.data[tIdx] || []).length > 1);
+        const groupsData = filteredGroups.map(g => g.data[tIdx]);
+        if (groupsData.length < 2) return;
+
+        let pMain = 1;
+        let postHocHtml = "-";
+        let status = "NS";
+        const detailParts = [];
+
+        if (nGroups === 2) {
+            const res = welchTTest(groupsData[0], groupsData[1]);
+            const bm = brunnerMunzel(groupsData[0], groupsData[1]);
+            pMain = res ? res.p : 1;
+            postHocHtml = bm ? formatP(bm.p) : "-";
+            status = pMain < 0.05 ? "Significant" : "NS";
+            if (res) {
+                detailParts.push(`Welch t=${res.t.toFixed(3)}, df=${res.df.toFixed(2)}, p=${formatPPreciseWithDecimal(res.p)}`);
+            }
+            if (bm && Number.isFinite(bm.w) && Number.isFinite(bm.p) && bm.p > 0) {
+                detailParts.push(`Brunner-Munzel (approx) W=${bm.w.toFixed(3)}, df=${bm.df ? bm.df.toFixed(2) : "-"}, p=${formatPPreciseWithDecimal(bm.p)}`);
+            } else {
+                detailParts.push('Brunner-Munzel (approx) result invalid or unstable (use external tool).');
+            }
+        } else {
+            const aRes = oneWayANOVA(groupsData);
+            if (aRes) {
+                pMain = fDistributionP(aRes.f, aRes.df1, aRes.df2);
+                const dunnettRes = runDunnett(groupsData, aRes.msWithin, aRes.df2);
+                postHocHtml = dunnettRes.map((r, idx) =>
+                    `<div style="color:${r.isSig ? 'var(--danger)' : 'var(--muted)'}">${filteredGroups[idx + 1].name}: p=${formatP(r.p)}</div>`
+                ).join("");
+                status = pMain < 0.05 ? "Significant" : "NS";
+                detailParts.push(`ANOVA F=${aRes.f.toFixed(3)}, df1=${aRes.df1}, df2=${aRes.df2}, p=${formatPPreciseWithDecimal(pMain)}`);
+                dunnettRes.forEach((r, idx) => {
+                    detailParts.push(`Dunnett vs Ctrl -> ${filteredGroups[idx + 1].name}: p=${formatPPreciseWithDecimal(r.p)}`);
+                });
+            }
+        }
+
+        html += `<tr style="border-bottom:1px solid var(--border);">
+            <td style="padding:8px; font-weight:bold;">${label}</td>
+            <td style="padding:8px; color:${pMain < 0.05 ? 'red' : 'black'}">${formatP(pMain)}</td>
+            <td style="padding:8px; font-size:0.75rem;">${postHocHtml}</td>
+            <td style="padding:8px;"><strong>${status}</strong></td>
+        </tr>`;
+        if (detailParts.length) {
+            detailLines.push(`[${label}]\n${detailParts.join('\n')}`);
+        }
+    });
+
+    html += `</tbody></table>`;
+    document.getElementById('statsTableContainer').innerHTML = html;
+    const detailEl = document.getElementById('calcDetails');
+    if (detailEl) {
+        detailEl.textContent = detailLines.length ? detailLines.join('\n\n') : 'No statistical details available.';
+    }
+    updateCodeDisplay();
+}
+
+function scheduleUpdatePlot(resetPad = false) {
+    if (resetPad) autoBottomPad = 0;
+    if (updateRafScheduled) return;
+    updateRafScheduled = true;
+    requestAnimationFrame(() => {
+        updateRafScheduled = false;
+        updatePlot(0);
+    });
+}
+
+function getChartTitle() {
+    const mainEl = document.getElementById('chartTitleInput');
+    return (mainEl?.value || '').trim();
+}
+
+function syncChartTitle() {
+    const mainEl = document.getElementById('chartTitleInput');
+    if (!mainEl) return;
+    updateExplorerTitleDisplay();
+    updatePlot();
+}
+
+function updateExplorerTitleDisplay() {
+    const displayEl = document.getElementById('explorerTitleDisplay');
+    if (!displayEl) return;
+    const title = getChartTitle();
+    displayEl.textContent = title || '-';
+}
+
+function updatePlot(reflowPass = 0) {
+    const mode = document.getElementById('plotMode').value;
+    const survivalMode = mode === 'survival';
+    const isCompMode = mode === 'comparison';
+    let timeLabels = isCompMode ? ["Data"] : document.getElementById('timePointsInput').value.trim().split(/[\t\s]+/).filter(s => s !== "");
+    if (!survivalMode && timeLabels.length === 0) {
+        const fallbackCols = Array.from(document.querySelectorAll('.group-data-input'))
+            .map(el => getColumnCount(el.value))
+            .reduce((max, n) => Math.max(max, n), 0);
+        if (fallbackCols > 0) {
+            timeLabels = Array.from({ length: fallbackCols }, (_, i) => `Col${i + 1}`);
+        }
+    }
+    if (!survivalMode && timeLabels.length === 0) return;
+
+    const fsX = parseInt(document.getElementById('fontSizeX').value);
+    const fsY = parseInt(document.getElementById('fontSizeY').value);
+    const dotR = parseFloat(document.getElementById('dotSize').value);
+    const numTicks = parseInt(document.getElementById('numTicks').value);
+    const widthVal = document.getElementById('chartWidthVal');
+    const heightVal = document.getElementById('chartHeightVal');
+    const widthRaw = parseInt(widthVal?.value, 10);
+    const heightRaw = parseInt(heightVal?.value, 10);
+    const width = Number.isFinite(widthRaw) && widthRaw > 0 ? widthRaw : 300;
+    const height = Number.isFinite(heightRaw) && heightRaw > 0 ? heightRaw : 200;
+    if (widthVal) widthVal.value = width;
+    if (heightVal) heightVal.value = height;
+    if (widthVal) widthVal.value = width;
+    if (heightVal) heightVal.value = height;
+    const displayScale = 2;
+    const svgWrapper = document.getElementById('svg-wrapper');
+    const svgContainer = document.getElementById('svg-container');
+    if (svgWrapper) {
+        svgWrapper.style.width = `${width * displayScale}px`;
+        svgWrapper.style.height = `${height * displayScale}px`;
+    }
+    if (svgContainer) {
+        svgContainer.style.transform = `scale(${displayScale})`;
+        svgContainer.style.transformOrigin = 'top left';
+        svgContainer.style.width = `${width}px`;
+        svgContainer.style.height = `${height}px`;
+    }
+    const handlePosLeft = document.getElementById('handlePosLeft');
+    if (handlePosLeft) {
+        handlePosLeft.textContent = `L: ${Math.round(chartOffsetX)}`;
+    }
+    const yMinInputEl = document.getElementById('yMinInput');
+    const yMaxInputEl = document.getElementById('yMaxInput');
+    const yMinManual = parseFloat(yMinInputEl.value);
+    let yMaxManual = parseFloat(yMaxInputEl.value);
+    const isAutoFlag = yMaxInputEl.dataset.auto !== 'false';
+    const isAutoY = isAutoFlag && (!yMaxManual || yMaxManual <= 0 || yMaxInputEl.dataset.auto === 'true');
+    const jitterAmount = parseFloat(document.getElementById('jitter').value);
+    const autoBrackets = document.getElementById('autoBrackets').checked;
+    const showLines = document.getElementById('showLines').checked;
+    const showBars = document.getElementById('showBars').checked;
+    syncBarControlsUI();
+    const showSampleLines = document.getElementById('showSampleLines').checked;
+    const showMean = document.getElementById('showMean').checked;
+    const showMeanDots = document.getElementById('showMeanDots').checked;
+    const showErrorBars = document.getElementById('showErrorBars').checked;
+    const errorType = document.getElementById('errorType')?.value || 'se';
+    const bracketOffset = parseFloat(document.getElementById('bracketOffset').value);
+    const lineOptionsBody = document.getElementById('lineOptionsBody');
+    if (lineOptionsBody) {
+        lineOptionsBody.classList.toggle('panel-disabled', !showLines);
+    }
+    const bracketOffsetLabel = document.getElementById('bracketOffsetVal');
+    if (bracketOffsetLabel) {
+        if (bracketOffset === 0) {
+            bracketOffsetLabel.textContent = 'center';
+        } else {
+            bracketOffsetLabel.textContent = `${bracketOffset > 0 ? '+' : ''}${bracketOffset}px`;
+        }
+    }
+    const xAxisLabel = document.getElementById('xAxisLabel').value.trim();
+    const yAxisLabel = document.getElementById('yAxisLabel').value.trim();
+    const titleText = getChartTitle();
+    const titleFontSize = parseFloat(document.getElementById('titleFontSize')?.value) || 10;
+    const titleFontStyle = document.getElementById('titleItalic')?.checked ? 'italic' : 'normal';
+    const titlePad = titleText ? (titleFontSize + 12) : 0;
+    const svgBg = getCssVar('--svg-bg') || '#fff';
+    const svgInk = getCssVar('--svg-ink') || '#000';
+    const axisColor = svgInk;
+    const xLabelOffset = parseFloat(document.getElementById('xLabelOffset').value) || 0;
+    const yLabelOffset = parseFloat(document.getElementById('yLabelOffset').value) || 0;
+    const xAxisFontSize = parseFloat(document.getElementById('xAxisFontSize').value) || fsX;
+    const yAxisFontSize = parseFloat(document.getElementById('yAxisFontSize').value) || fsY;
+    function applyAutoRotateXLabels() {
+        const svgRoot = document.querySelector('#svg-container svg');
+        if (!svgRoot) return;
+        const labels = Array.from(svgRoot.querySelectorAll('.x-axis-label'));
+        if (labels.length < 2) return;
+        const basePos = labels.map(el => ({
+            x: parseFloat(el.getAttribute('x')) || 0,
+            y: parseFloat(el.getAttribute('y')) || 0
+        }));
+        const angles = [0, -15, -25, -35, -45, -60];
+        for (const ang of angles) {
+            labels.forEach((el, i) => {
+                const { x, y } = basePos[i];
+                const yAdj = ang === 0 ? 0 : 4;
+                el.setAttribute('x', x);
+                el.setAttribute('y', y + yAdj);
+                el.setAttribute('text-anchor', ang === 0 ? 'middle' : 'end');
+                if (ang === 0) {
+                    el.removeAttribute('transform');
+                } else {
+                    el.setAttribute('transform', `rotate(${ang} ${x} ${y + yAdj})`);
+                }
+            });
+            let overlap = false;
+            for (let i = 1; i < labels.length; i++) {
+                const b0 = labels[i - 1].getBBox();
+                const b1 = labels[i].getBBox();
+                if (b0.x + b0.width > b1.x) { overlap = true; break; }
+            }
+            if (!overlap) break;
+        }
+    }
+    function schedulePadCheck() {
+        if (reflowPass >= 1) return;
+        const SAFETY = 20;
+        const measure = () => {
+            const svgRoot = document.querySelector('#svg-container svg');
+            if (!svgRoot) return;
+            const labels = Array.from(svgRoot.querySelectorAll('.x-axis-label'));
+            const svgRect = svgRoot.getBoundingClientRect();
+            if (!svgRect.height) return;
+            const overflowPx = Math.max(...(labels.length ? labels.map(el => {
+                const r = el.getBoundingClientRect();
+                return r.bottom - svgRect.bottom;
+            }) : [0]), 0);
+            const svgUnitsPerPxY = height / svgRect.height;
+            const overflowSvg = Math.ceil(Math.max(0, overflowPx) * svgUnitsPerPxY);
+            const now = performance.now();
+            targetBottomPad = Math.max(0, overflowSvg + SAFETY);
+
+            if (targetBottomPad > autoBottomPad) {
+                autoBottomPad = targetBottomPad;
+                lastGrowAt = now;
+                stableZeroSince = null;
+                updatePlot(reflowPass + 1);
+                return;
+            }
+
+            if (overflowSvg > 0) {
+                stableZeroSince = null;
+                return;
+            }
+            if (NEVER_SHRINK) return;
+            if (lastGrowAt && (now - lastGrowAt) <= 300) {
+                stableZeroSince = null;
+                return;
+            }
+            if (!stableZeroSince) {
+                stableZeroSince = now;
+                return;
+            }
+            if ((now - stableZeroSince) < 300) return;
+
+            const newPad = Math.max(targetBottomPad, autoBottomPad - 8);
+            if (newPad !== autoBottomPad) {
+                autoBottomPad = newPad;
+                updatePlot(reflowPass + 1);
+            }
+        };
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                setTimeout(measure, 0);
+            });
+        });
+    }
+    if (survivalMode) {
+        const { groupConfigs, maxTime } = parseSurvivalData(document.getElementById('survivalData').value);
+        const xMaxEl = document.getElementById('survivalXMax');
+        const xMaxInput = parseFloat(xMaxEl.value);
+        const isAutoX = xMaxEl.dataset.auto !== 'false';
+        const yAxisPercent = document.getElementById('survivalYAxisPercent').checked;
+        const xMax = xMaxInput > 0 ? xMaxInput : maxTime;
+        const svgItems = [];
+        svgItems.push(`<rect class="svg-bg" x="0" y="0" width="${width}" height="${height}" fill="${svgBg}" />`);
+        const safeXMax = (isAutoX || xMaxInput <= 0 || Number.isNaN(xMaxInput)) ? (maxTime || 1) : (xMax > 0 ? xMax : maxTime || 1);
+        let yMax = yAxisPercent ? 100 : 1;
+        yMaxInputEl.dataset.auto = 'true';
+        yMaxInputEl.value = yMax;
+        if (xMaxEl && (isAutoX || xMaxInput <= 0 || Number.isNaN(xMaxInput))) {
+            xMaxEl.value = safeXMax;
+        }
+        const pL = fsY * 4.6, pB = fsX * 3 + 6 + autoBottomPad, pT = 30 + titlePad, pR = 30;
+        const graphW = width - pL - pR, graphH = height - pB - pT;
+        if (graphW <= 0 || graphH <= 0) {
+            return;
+        }
+        if (graphW <= 0 || graphH <= 0) {
+            return;
+        }
+        const xScale = (v) => pL + (v / safeXMax) * graphW;
+        const yScale = (v) => height - pB - (v / yMax * graphH);
+        plotMetrics = { pL, pT, graphW, graphH, width, height };
+
+        if (titleText) {
+            const titleX = width / 2 + titleOffsetX;
+            const titleY = titleFontSize + 6 + titleOffsetY;
+            svgItems.push(`<text class="axis-label" data-label="title" x="${titleX}" y="${titleY}" text-anchor="middle" font-size="${titleFontSize}" font-family="Arial" font-style="${titleFontStyle}" fill="${axisColor}">${titleText}</text>`);
+        }
+        svgItems.push(`<line x1="${pL}" y1="${height-pB}" x2="${pL}" y2="${pT}" stroke="${axisColor}" stroke-width="1.2"/>`);
+
+        for (let i = 0; i <= numTicks; i++) {
+            const val = Number((yMax / numTicks * i).toFixed(2));
+            const y = yScale(val);
+            svgItems.push(`<line x1="${pL}" y1="${y}" x2="${pL-5}" y2="${y}" stroke="${axisColor}" stroke-width="1.2"/>`);
+            const labelVal = yAxisPercent ? `${val}%` : val;
+            svgItems.push(`<text x="${pL-8}" y="${y}" text-anchor="end" dominant-baseline="central" font-size="${fsY}" font-family="Arial" fill="${axisColor}">${labelVal}</text>`);
+        }
+
+        const xTickCount = 5;
+        for (let i = 0; i <= xTickCount; i++) {
+            const val = (safeXMax / xTickCount) * i;
+            const x = xScale(val);
+            svgItems.push(`<line x1="${x}" y1="${height-pB}" x2="${x}" y2="${height-pB+5}" stroke="${axisColor}" stroke-width="1.2"/>`);
+            svgItems.push(`<text class="x-axis-label" x="${x}" y="${height-pB+fsX+10}" text-anchor="middle" font-size="${fsX}" font-family="Arial" fill="${axisColor}">${Number(val.toFixed(2))}</text>`);
+        }
+
+        if (xAxisLabel) {
+            const xLabelY = height - pB + xAxisFontSize + xLabelOffset + xAxisLabelOffsetY;
+            const xLabelX = pL + (graphW / 2) + xAxisLabelOffsetX;
+            svgItems.push(`<text class="axis-label" data-label="x" x="${xLabelX}" y="${xLabelY}" text-anchor="middle" font-size="${xAxisFontSize}" font-family="Arial" fill="${axisColor}">${xAxisLabel}</text>`);
+        }
+        if (yAxisLabel) {
+            const yLabelX = pL - yAxisFontSize - yLabelOffset + yAxisLabelOffsetX;
+            const yLabelY = pT + (graphH / 2) + yAxisLabelOffsetY;
+            svgItems.push(`<text class="axis-label" data-label="y" x="${yLabelX}" y="${yLabelY}" text-anchor="middle" font-size="${yAxisFontSize}" font-family="Arial" fill="${axisColor}" transform="rotate(-90 ${yLabelX} ${yLabelY})">${yAxisLabel}</text>`);
+        }
+
+        groupConfigs.forEach((group) => {
+            const lineColor = group.color === '#ffffff' ? axisColor : group.color;
+            const steps = computeSurvivalCurve(group.times || []);
+            if (steps.length < 2) return;
+            let path = `M ${xScale(0)} ${yScale(yAxisPercent ? 100 : 1)}`;
+            let prevS = 1;
+            let reachedMax = false;
+            for (const step of steps.slice(1)) {
+                if (step.t > safeXMax) {
+                    path += ` L ${xScale(safeXMax)} ${yScale(yAxisPercent ? prevS * 100 : prevS)}`;
+                    reachedMax = true;
+                    break;
+                }
+                const x = xScale(step.t);
+                path += ` L ${x} ${yScale(yAxisPercent ? prevS * 100 : prevS)} L ${x} ${yScale(yAxisPercent ? step.s * 100 : step.s)}`;
+                prevS = step.s;
+            }
+            if (!reachedMax) {
+                path += ` L ${xScale(safeXMax)} ${yScale(yAxisPercent ? prevS * 100 : prevS)}`;
+            }
+            svgItems.push(`<path d="${path}" fill="none" stroke="${lineColor}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`);
+        });
+        svgItems.push(`<line x1="${pL}" y1="${height-pB}" x2="${pL + graphW}" y2="${height-pB}" stroke="${axisColor}" stroke-width="1.2"/>`);
+
+        if (document.getElementById('showLegend').checked) {
+            const legendFontSize = parseFloat(document.getElementById('legendFontSize').value) || fsY;
+            const legendState = document.getElementById('legendState');
+            const pos = legendState ? legendState.value.split(',').map(v => parseFloat(v)) : [95, 10];
+            const lxPercent = isNaN(pos[0]) ? 95 : pos[0];
+            const lyPercent = isNaN(pos[1]) ? 10 : pos[1];
+            const lx = pL + (graphW * (lxPercent / 100));
+            const ly = pT + (graphH * (lyPercent / 100));
+            svgItems.push(`<g id="legend-group" font-family="Arial" font-size="${legendFontSize}" style="cursor: move; pointer-events: all;">`);
+            groupConfigs.forEach((group, i) => {
+                const itemY = ly + (i * legendFontSize * 1.5);
+                svgItems.push(`
+        <g id="Legend_${group.name}">
+            <circle cx="${lx}" cy="${itemY}" r="${dotR}" fill="${group.color}" stroke="${axisColor}" stroke-width="0.8" />
+            <text x="${lx + legendFontSize}" y="${itemY}" dominant-baseline="central" fill="${axisColor}">${group.name}</text>
+        </g>`);
+            });
+            svgItems.push(`</g>`);
+        }
+
+        document.getElementById('svg-container').innerHTML = `<svg width="${width}px" height="${height}px" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="background:${svgBg}; overflow:visible; color: ${svgInk};">${svgItems.join('')}</svg>`;
+        applyAutoRotateXLabels();
+        schedulePadCheck();
+        const detailEl = document.getElementById('calcDetails');
+        if (groupConfigs.length === 2) {
+            const lr = logRankTestTwoGroups(groupConfigs[0].times, groupConfigs[1].times);
+            const pText = lr ? (lr.p < 0.0001 ? "<0.0001" : lr.p.toFixed(4)) : "N/A";
+            document.getElementById('statsTableContainer').innerHTML = `
+                <table style="width:100%; border-collapse: collapse; font-size: 0.85rem;">
+                    <thead>
+                        <tr style="background:#f1f3f5; border-bottom:2px solid #dee2e6;">
+                            <th style="padding:10px;">Survival Test</th>
+                            <th style="padding:10px;">Z</th>
+                            <th style="padding:10px;">P-value</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr style="border-bottom:1px solid var(--border);">
+                            <td style="padding:8px;">Log-rank (2 groups)</td>
+                            <td style="padding:8px;">${lr ? lr.z.toFixed(3) : "N/A"}</td>
+                            <td style="padding:8px;">${pText}</td>
+                        </tr>
+                    </tbody>
+                </table>`;
+            if (detailEl) detailEl.textContent = lr ? `Log-rank Z=${lr.z.toFixed(3)}, p=${lr.p}` : 'Log-rank result not available.';
+        } else {
+            document.getElementById('statsTableContainer').innerHTML = '<p style="color: var(--muted);">Survival mode: log-rank is available only for 2 groups.</p>';
+            if (detailEl) detailEl.textContent = 'Survival mode: log-rank is available only for 2 groups.';
+        }
+        updateCodeDisplay();
+        return;
+    }
+
+    // 全グループデータの取得
+    const groupCards = document.querySelectorAll('.group-card');
+    groupCards.forEach(card => renderGroupTable(card));
+    const groupConfigs = Array.from(groupCards).map(card => ({
+        name: card.querySelector('.group-name-input').value,
+        color: card.querySelector('.group-color-input').value,
+        data: parseData(card.querySelector('.group-data-input').value, timeLabels.length)
+    }));
+    const nGroups = groupConfigs.length;
+    ensureGroupOffsets(nGroups);
+    ensureGroupLabelOffsets(nGroups);
+    const getCompCenter = (gIdx) => pL + (gIdx + 0.5) * (graphW / nGroups) + (groupOffsetX[gIdx] || 0);
+    const getTimeCenter = (tIdx, gIdx, groupSpace) => {
+        const base = pL + (tIdx + 0.5) * (graphW / timeLabels.length);
+        const offset = (gIdx - (nGroups - 1) / 2) * (groupSpace / nGroups);
+        return base + offset + (groupOffsetX[gIdx] || 0);
+    };
+
+    // 1. まず統計計算を行い、ブラケチEが忁Eな「階層数」を把握する
+    let maxBracketLayers = 0;
+    timeLabels.forEach((_, tIdx) => {
+        const d = groupConfigs.map(g => g.data[tIdx]).filter(x => x.length > 1);
+        if (d.length === 2) {
+            const res = welchTTest(d[0], d[1]);
+            if (res && res.p < 0.05) maxBracketLayers = Math.max(maxBracketLayers, 1);
+        } else if (d.length >= 3) {
+            const a = oneWayANOVA(d);
+            if (a && fDistributionP(a.f, a.df1, a.df2) < 0.05) {
+                const sigCount = runDunnett(d, a.msWithin, a.df2).filter(r => r.isSig).length;
+                maxBracketLayers = Math.max(maxBracketLayers, sigCount);
+            }
+        }
+    });
+
+    // 2. Y軸の最大値を決宁E(ブラケチEがある場合E20-30%の余白を追加)
+    const allValues = groupConfigs.flatMap(g => g.data.flat());
+    const statsAll = groupConfigs.flatMap(g => g.data.map(calcStats));
+    const maxCandidates = [...allValues, ...statsAll.map(s => s.mean + (errorType === 'sd' ? s.sd : s.se))];
+    const minCandidates = [...allValues, ...statsAll.map(s => s.mean - (errorType === 'sd' ? s.sd : s.se))];
+    const rawMax = maxCandidates.length ? Math.max(...maxCandidates) : 1;
+    const rawMin = minCandidates.length ? Math.min(...minCandidates) : 0;
+
+    const baseYMax = niceCeil(rawMax);
+    let yMax = yMaxManual > 0 ? yMaxManual : baseYMax;
+    const yMinIsManual = yMinInputEl.dataset.auto === 'false' && Number.isFinite(yMinManual);
+    let yMin = yMinIsManual ? yMinManual : Math.min(0, rawMin);
+
+    // 有意差マEクがある場合、強制皁E上限を押し上げめE
+    if (autoBrackets && maxBracketLayers > 0 && isAutoY) {
+        const extraFactor = Math.min(0.1, 0.05 * maxBracketLayers);
+        const expandedYMax = niceCeil(rawMax * (1 + extraFactor));
+        yMax = Math.max(baseYMax, expandedYMax);
+    }
+    if (isAutoY) {
+        yMaxInputEl.dataset.auto = 'true';
+        yMaxInputEl.value = yMax;
+        if (yMinInputEl) yMinInputEl.value = yMin;
+    }
+
+    const pL = fsY * 4.6, pB = fsX * 3 + 6 + autoBottomPad, pT = 30 + titlePad, pR = 30;
+    const graphW = width - pL - pR, graphH = height - pB - pT;
+    const yScale = (v) => height - pB - ((v - yMin) / (yMax - yMin) * graphH);
+    plotMetrics = { pL, pT, graphW, graphH, width, height };
+
+    let svgItems = [];
+    svgItems.push(`<rect class="svg-bg" x="0" y="0" width="${width}" height="${height}" fill="${svgBg}" />`);
+    const strokeW = 1.2;
+
+    function drawGroupContent(x, data, s, group, barWidth, baselineVal, gIdx) {
+        const errVal = errorType === 'sd' ? s.sd : s.se;
+        const yM = yScale(s.mean), yT = yScale(s.mean + errVal), yB = yScale(s.mean - errVal);
+        const dotR = parseFloat(document.getElementById('dotSize').value);
+        const jitter = parseFloat(document.getElementById('jitter').value);
+
+        if (showBars) {
+            const baseY = yScale(baselineVal);
+            const barY = Math.min(yM, baseY);
+            const barH = Math.abs(baseY - yM);
+            const dragClass = (draggingBarIndex === gIdx) ? ' dragging' : '';
+            svgItems.push(`<rect class="bar-draggable${dragClass}" data-group-index="${gIdx}" x="${x - barWidth / 2}" y="${barY}" width="${barWidth}" height="${barH}" fill="${group.color}" fill-opacity="0.35" stroke="${axisColor}" stroke-width="0.8"/>`);
+        }
+        if (showErrorBars) {
+            const capHalf = Math.min(5, barWidth * 0.25);
+            svgItems.push(`
+    <g stroke="${axisColor}" stroke-width="1.2">
+        <line x1="${x}" y1="${yB}" x2="${x}" y2="${yT}" />
+        <line x1="${x-capHalf}" y1="${yT}" x2="${x+capHalf}" y2="${yT}" />
+        <line x1="${x-capHalf}" y1="${yB}" x2="${x+capHalf}" y2="${yB}" />
+    </g>`);
+            if (!showBars) {
+                svgItems.push(`<line x1="${x-12}" y1="${yM}" x2="${x+12}" y2="${yM}" stroke="${axisColor}" stroke-width="1.5" />`);
+            }
+        }
+        if (showMean) {
+            data.forEach(v => {
+                const j = (Math.random() - 0.5) * jitter;
+                svgItems.push(`<circle cx="${x + j}" cy="${yScale(v)}" r="${dotR}" fill="${group.color}" stroke="${axisColor}" stroke-width="0.8" />`);
+            });
+        }
+    }
+
+    if (titleText) {
+        const titleX = width / 2 + titleOffsetX;
+        const titleY = titleFontSize + 6 + titleOffsetY;
+        svgItems.push(`<text class="axis-label" data-label="title" x="${titleX}" y="${titleY}" text-anchor="middle" font-size="${titleFontSize}" font-family="Arial" font-style="${titleFontStyle}" fill="${axisColor}">${titleText}</text>`);
+    }
+    // 軸
+    svgItems.push(`<line x1="${pL}" y1="${height-pB}" x2="${pL}" y2="${pT}" stroke="${axisColor}" stroke-width="${strokeW}"/>`);
+    svgItems.push(`<line x1="${pL}" y1="${height-pB}" x2="${width-pR}" y2="${height-pB}" stroke="${axisColor}" stroke-width="${strokeW}"/>`);
+
+    // Y軸目盛り
+    for(let i=0; i<=numTicks; i++){
+        const val = Number((yMin + (yMax - yMin) / numTicks * i).toFixed(1));
+        const y = yScale(val);
+        svgItems.push(`<line x1="${pL}" y1="${y}" x2="${pL-5}" y2="${y}" stroke="${axisColor}" stroke-width="${strokeW}"/>`);
+        svgItems.push(`<text x="${pL-8}" y="${y}" text-anchor="end" dominant-baseline="central" font-size="${fsY}" font-family="Arial" fill="${axisColor}">${val}</text>`);
+    }
+    if (xAxisLabel) {
+        const xLabelY = height - pB + xAxisFontSize + xLabelOffset + xAxisLabelOffsetY;
+        const xLabelX = pL + (graphW / 2) + xAxisLabelOffsetX;
+        svgItems.push(`<text class="axis-label" data-label="x" x="${xLabelX}" y="${xLabelY}" text-anchor="middle" font-size="${xAxisFontSize}" font-family="Arial" fill="${axisColor}">${xAxisLabel}</text>`);
+    }
+    if (yAxisLabel) {
+        const yLabelX = pL - yAxisFontSize - yLabelOffset + yAxisLabelOffsetX;
+        const yLabelY = pT + (graphH / 2) + yAxisLabelOffsetY;
+        svgItems.push(`<text class="axis-label" data-label="y" x="${yLabelX}" y="${yLabelY}" text-anchor="middle" font-size="${yAxisFontSize}" font-family="Arial" fill="${axisColor}" transform="rotate(-90 ${yLabelX} ${yLabelY})">${yAxisLabel}</text>`);
+    }
+
+    // 吁EイムポイントE描画
+    if (isCompMode) {
+        const barWidth = Math.max(2, Math.min(barWidthState, graphW / Math.max(1, nGroups)));
+        groupConfigs.forEach((group, gIdx) => {
+            const x = getCompCenter(gIdx);
+            const data = group.data[0] || [];
+            const s = calcStats(data);
+            const baselineVal = yMin < 0 ? 0 : yMin;
+
+            if (s.n > 0) {
+                drawGroupContent(x, data, s, group, barWidth, baselineVal, gIdx);
+            }
+            const labelY = height - pB + fsX + 10 + (groupLabelOffsetY[gIdx] || 0);
+            svgItems.push(`<text class="x-axis-label group-label" data-group-index="${gIdx}" x="${x}" y="${labelY}" text-anchor="middle" font-size="${fsX}" font-family="Arial" fill="${axisColor}">${group.name}</text>`);
+        });
+    } else {
+        if (showLines) {
+            groupConfigs.forEach((group, gIdx) => {
+                const points = [];
+                const lineColor = group.color === '#ffffff' ? axisColor : group.color;
+                if (showSampleLines) {
+                    let maxSamples = 0;
+                    timeLabels.forEach((label, tIdx) => {
+                        const data = group.data[tIdx] || [];
+                        maxSamples = Math.max(maxSamples, data.length);
+                    });
+                    for (let sIdx = 0; sIdx < maxSamples; sIdx++) {
+                        const samplePoints = [];
+                        timeLabels.forEach((label, tIdx) => {
+                            const data = group.data[tIdx] || [];
+                            if (data[sIdx] === undefined) return;
+                const xCenter = pL + (tIdx + 0.5) * (graphW / timeLabels.length) + (groupOffsetX[gIdx] || 0);
+                            const y = yScale(data[sIdx]);
+                            samplePoints.push(`${xCenter},${y}`);
+                        });
+                        if (samplePoints.length > 1) {
+                            svgItems.push(`
+                <polyline points="${samplePoints.join(' ')}"
+                          fill="none"
+                          stroke="${lineColor}"
+                          stroke-width="1"
+                          opacity="0.35"
+                          stroke-linejoin="round"
+                          stroke-linecap="round" />
+            `);
+                        }
+                    }
+                }
+                timeLabels.forEach((label, tIdx) => {
+                    const data = group.data[tIdx] || [];
+                    const s = calcStats(data);
+                if (s.n > 0) {
+                const xCenter = pL + (tIdx + 0.5) * (graphW / timeLabels.length) + (groupOffsetX[gIdx] || 0);
+                    const y = yScale(s.mean);
+                        const errVal = errorType === 'sd' ? s.sd : s.se;
+                        const yT = yScale(s.mean + errVal);
+                        const yB = yScale(s.mean - errVal);
+
+                        points.push(`${xCenter},${y}`);
+                        if (showErrorBars) {
+                            svgItems.push(`
+                <g stroke="${lineColor}" stroke-width="1.4">
+                    <line x1="${xCenter}" y1="${yB}" x2="${xCenter}" y2="${yT}" />
+                    <line x1="${xCenter-5}" y1="${yT}" x2="${xCenter+5}" y2="${yT}" />
+                    <line x1="${xCenter-5}" y1="${yB}" x2="${xCenter+5}" y2="${yB}" />
+                </g>`);
+                        }
+                        if (showMeanDots) {
+                            svgItems.push(`<circle cx="${xCenter}" cy="${y}" r="${Math.max(2, dotR * 0.7)}" fill="${lineColor}" stroke="${lineColor}" stroke-width="0.8" />`);
+                        }
+                    }
+                });
+
+                if (showMean && !showBars && points.length > 1) {
+                    svgItems.push(`
+                <polyline points="${points.join(' ')}"
+                          fill="none"
+                          stroke="${lineColor}"
+                          stroke-width="2"
+                          stroke-linejoin="round"
+                          stroke-linecap="round" />
+            `);
+                }
+            });
+        } else {
+            timeLabels.forEach((label, tIdx) => {
+                const xCenterBase = pL + (tIdx + 0.5) * (graphW / timeLabels.length);
+                const groupSpace = (graphW / timeLabels.length) * 0.85;
+                const barWidth = Math.max(2, Math.min(barWidthState, groupSpace / Math.max(1, groupConfigs.length)));
+                const baselineVal = yMin < 0 ? 0 : yMin;
+
+                groupConfigs.forEach((group, gIdx) => {
+                    const xOffset = (gIdx - (groupConfigs.length - 1) / 2) * (groupSpace / groupConfigs.length);
+                    const x = xCenterBase + xOffset + (groupOffsetX[gIdx] || 0);
+                    const data = group.data[tIdx] || [];
+                    const s = calcStats(data);
+
+                    if (s.n > 0) {
+                        drawGroupContent(x, data, s, group, barWidth, baselineVal, gIdx);
+                    }
+                });
+            });
+        }
+        timeLabels.forEach((label, tIdx) => {
+            const xCenter = pL + (tIdx + 0.5) * (graphW / timeLabels.length);
+                svgItems.push(`<text class="x-axis-label" x="${xCenter}" y="${height-pB+fsX+10}" text-anchor="middle" font-size="${fsX}" font-family="Arial" fill="${axisColor}">${label}</text>`);
+        });
+    }
+
+    // --- 有意差ブラケチEの描画 ---
+    if (autoBrackets) {
+        timeLabels.forEach((label, tIdx) => {
+            const groupsData = groupConfigs.map(g => g.data[tIdx]).filter(d => d.length > 1);
+            if (groupsData.length < 2) return;
+
+            const baseCenter = pL + (tIdx + 0.5) * (graphW / timeLabels.length);
+            const groupSpace = (graphW / timeLabels.length) * 0.85;
+            const ctrlX = isCompMode
+                ? getCompCenter(0)
+                : getTimeCenter(tIdx, 0, groupSpace);
+
+            const statsAtTime = groupsData.map(calcStats);
+            const errorMaxY = Math.min(...statsAtTime.map(s => yScale(s.mean + (errorType === 'sd' ? s.sd : s.se))));
+            let bracketY = errorMaxY - 15 - bracketOffset;
+
+            if (nGroups === 2) {
+                const res = welchTTest(groupsData[0], groupsData[1]);
+                if (res && res.p < 0.05) {
+                    if (showLines) {
+                        const s2 = calcStats(groupsData[1]);
+                        const err2 = errorType === 'sd' ? s2.sd : s2.se;
+                        const targetX = isCompMode
+                            ? getCompCenter(1)
+                            : baseCenter;
+                        const starY = yScale(s2.mean + err2) - 8 - bracketOffset;
+                        svgItems.push(`<text x="${targetX}" y="${starY}" text-anchor="middle" font-size="${fsX * 1.2}" font-family="Arial" font-weight="bold" fill="${axisColor}">${getStars(res.p)}</text>`);
+                    } else {
+                        const targetX = isCompMode
+                            ? getCompCenter(1)
+                            : getTimeCenter(tIdx, 1, groupSpace);
+                        svgItems.push(drawBracket(ctrlX, targetX, bracketY, getStars(res.p), fsX));
+                    }
+                }
+            } else {
+                const a = oneWayANOVA(groupsData);
+                if (a && fDistributionP(a.f, a.df1, a.df2) < 0.05) {
+                    const dunnettRes = runDunnett(groupsData, a.msWithin, a.df2);
+                    dunnettRes.forEach((res, i) => {
+                        if (res.isSig) {
+                            const targetX = isCompMode
+                                ? getCompCenter(i + 1)
+                                : getTimeCenter(tIdx, i + 1, groupSpace);
+                            svgItems.push(drawBracket(ctrlX, targetX, bracketY, getStars(res.p), fsX));
+                            bracketY -= 22;
+                        }
+                    });
+                }
+            }
+        });
+    }
+
+    // --- Legend Generation ---
+    if (document.getElementById('showLegend').checked) {
+        const legendFontSize = parseFloat(document.getElementById('legendFontSize').value) || fsY;
+        const legendState = document.getElementById('legendState');
+        const pos = legendState ? legendState.value.split(',').map(v => parseFloat(v)) : [85, 10];
+        const lxPercent = isNaN(pos[0]) ? 85 : pos[0];
+        const lyPercent = isNaN(pos[1]) ? 10 : pos[1];
+        const lx = pL + (graphW * (lxPercent / 100));
+        const ly = pT + (graphH * (lyPercent / 100));
+
+        svgItems.push(`<g id="legend-group" font-family="Arial" font-size="${legendFontSize}" style="cursor: move; pointer-events: all;">`);
+        groupConfigs.forEach((group, i) => {
+            const itemY = ly + (i * legendFontSize * 1.5);
+            svgItems.push(`
+        <g id="Legend_${group.name}">
+            <circle cx="${lx}" cy="${itemY}" r="${dotR}" fill="${group.color}" stroke="${axisColor}" stroke-width="${strokeW * 0.8}" />
+            <text x="${lx + legendFontSize}" y="${itemY}" dominant-baseline="central" fill="${axisColor}">${group.name}</text>
+        </g>`);
+        });
+        svgItems.push(`</g>`);
+    }
+
+    document.getElementById('svg-container').innerHTML = `<svg width="${width}px" height="${height}px" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="background:${svgBg}; overflow:visible; color: ${svgInk};">${svgItems.join('')}</svg>`;
+    applyAutoRotateXLabels();
+    schedulePadCheck();
+    displayStats(timeLabels, groupConfigs);
+}
+
+let toastTimer;
+function showToast(message) {
+    const toast = document.getElementById('toast');
+    if (!toast) return;
+    toast.textContent = message;
+    toast.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toast.classList.remove('show'), 1200);
+}
+
+function downloadSVG() {
+    const svg = document.getElementById('svg-container').innerHTML;
+    const blob = new Blob([svg], {type: "image/svg+xml"});
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `MultiGroup_Figure_${new Date().getTime()}.svg`;
+    link.click();
+}
+
+function setAutoYMax() {
+    const yMaxInputEl = document.getElementById('yMaxInput');
+    const yMinInputEl = document.getElementById('yMinInput');
+    yMaxInputEl.dataset.auto = 'true';
+    yMaxInputEl.value = '0';
+    if (yMinInputEl) {
+        yMinInputEl.dataset.auto = 'true';
+        yMinInputEl.value = '0';
+    }
+    updatePlot();
+}
+
+function setErrorType(type) {
+    const input = document.getElementById('errorType');
+    input.value = type;
+    const semBtn = document.getElementById('err-sem');
+    const sdBtn = document.getElementById('err-sd');
+    semBtn.classList.toggle('active', type === 'se');
+    sdBtn.classList.toggle('active', type === 'sd');
+    updatePlot();
+}
+
+function adjustLabelOffset(id, delta) {
+    const input = document.getElementById(id);
+    if (!input) return;
+    const current = parseFloat(input.value) || 0;
+    input.value = current + delta;
+    updatePlot();
+}
+
+function syncChartSize(axis) {
+    const widthVal = document.getElementById('chartWidthVal');
+    const heightVal = document.getElementById('chartHeightVal');
+    updatePlot();
+}
+
+function downloadCSV() {
+    const mode = document.getElementById('plotMode').value;
+    const isCompMode = mode === 'comparison';
+    const timeLabels = isCompMode ? ["Data"] : document.getElementById('timePointsInput').value.trim().split(/[\t\s]+/).filter(s => s !== "");
+    if (!timeLabels.length) return;
+
+    const groupCards = document.querySelectorAll('.group-card');
+    const groupConfigs = Array.from(groupCards).map(card => ({
+        name: card.querySelector('.group-name-input').value,
+        data: parseData(card.querySelector('.group-data-input').value, timeLabels.length)
+    }));
+
+    const lines = [];
+    lines.push('RawData');
+    lines.push('Time,Group,Value');
+    timeLabels.forEach((label, tIdx) => {
+        groupConfigs.forEach((group) => {
+            const data = group.data[tIdx] || [];
+            data.forEach((v) => {
+                lines.push(`${label},${group.name},${v}`);
+            });
+        });
+    });
+    lines.push('');
+    lines.push('Summary');
+    lines.push('Time,Group,Mean,SD,SE,N');
+    timeLabels.forEach((label, tIdx) => {
+        groupConfigs.forEach((group) => {
+            const data = group.data[tIdx] || [];
+            const s = calcStats(data);
+            lines.push(`${label},${group.name},${s.mean},${s.sd},${s.se},${s.n}`);
+        });
+    });
+
+    const csv = lines.join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `plot_data_${new Date().getTime()}.csv`;
+    link.click();
+}
+
+function downloadStatsCode() {
+    const mode = document.getElementById('plotMode').value;
+    const isCompMode = mode === 'comparison';
+    const timeLabels = isCompMode ? ["Data"] : document.getElementById('timePointsInput').value.trim().split(/[\t\s]+/).filter(s => s !== "");
+    if (!timeLabels.length) return;
+
+    const groupCards = document.querySelectorAll('.group-card');
+    const groupConfigs = Array.from(groupCards).map(card => ({
+        name: card.querySelector('.group-name-input').value,
+        data: parseData(card.querySelector('.group-data-input').value, timeLabels.length)
+    }));
+
+    const rows = [];
+    timeLabels.forEach((label, tIdx) => {
+        groupConfigs.forEach((group) => {
+            const data = group.data[tIdx] || [];
+            data.forEach((v) => {
+                rows.push(`  "${label}", "${group.name}", ${v}`);
+            });
+        });
+    });
+
+    const rScript = `# Generated from current app data
+# Paste into R as-is
+df <- read.csv(text = '
+Time,Group,Value
+${rows.join('\n')}
+', stringsAsFactors = FALSE)
+
+df$Time <- as.factor(df$Time)
+df$Group <- as.factor(df$Group)
+
+# Summary (mean, sd, se)
+library(dplyr)
+summary_stats <- df %>%
+  group_by(Time, Group) %>%
+  summarise(
+    mean = mean(Value),
+    sd = sd(Value),
+    se = sd(Value) / sqrt(n()),
+    n = n(),
+    .groups = "drop"
+  )
+print(summary_stats)
+
+# Two-group Welch t-test + Brunner-Munzel per Time
+if (length(levels(df$Group)) == 2) {
+  if (!requireNamespace("lawstat", quietly = TRUE)) {
+    install.packages("lawstat")
+  }
+  by(df, df$Time, function(sub) {
+    print(t.test(Value ~ Group, data = sub))
+    print(lawstat::brunner.munzel.test(Value ~ Group, data = sub))
+  })
+} else {
+  # One-way ANOVA per Time
+  by(df, df$Time, function(sub) {
+    print(summary(aov(Value ~ Group, data = sub)))
+  })
+}
+`;
+
+    const blob = new Blob([rScript], { type: 'text/plain;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `statistical_code_${new Date().getTime()}.R`;
+    link.click();
+}
+
+async function copySvgToClipboard() {
+    const svgEl = document.querySelector('#svg-container svg');
+    if (!svgEl) return;
+    let svgData = new XMLSerializer().serializeToString(svgEl);
+    const theme = document.documentElement.getAttribute('data-theme');
+    const lightSvgBg = '#F6F0E3';
+    const lightSvgInk = '#2B2A27';
+    if (theme === 'dark') {
+        const darkSvgBg = getCssVar('--svg-bg') || '#1C2226';
+        const darkSvgInk = getCssVar('--svg-ink') || '#E7E7E7';
+        svgData = svgData.split(darkSvgBg).join(lightSvgBg);
+        svgData = svgData.split(darkSvgInk).join(lightSvgInk);
+    }
+    svgData = svgData.replace(`background:${lightSvgBg};`, 'background:transparent;');
+    svgData = svgData.replace(/<rect class="svg-bg"[^>]*?>/, '');
+    const svgBlob = new Blob([svgData], { type: "image/svg+xml" });
+
+    try {
+        const width = parseInt(svgEl.getAttribute('width')) || 800;
+        const height = parseInt(svgEl.getAttribute('height')) || 600;
+        const img = new Image();
+        const url = URL.createObjectURL(svgBlob);
+
+        await new Promise((resolve, reject) => {
+            img.onload = () => resolve();
+            img.onerror = reject;
+            img.src = url;
+        });
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        URL.revokeObjectURL(url);
+
+        const pngBlob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+
+        if (navigator.clipboard && window.ClipboardItem && pngBlob) {
+            const item = new ClipboardItem({
+                'image/png': pngBlob,
+                'image/svg+xml': svgBlob,
+                'text/plain': new Blob([svgData], { type: 'text/plain' })
+            });
+            await navigator.clipboard.write([item]);
+            showToast('Copied');
+        } else if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(svgData);
+            showToast('Copied');
+        }
+    } catch (err) {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(svgData);
+            showToast('Copied');
+        }
+    }
+}
+
+
+// 初期グループE作E
+const resizer = document.getElementById("resizerHandle");
+const leftPanel = document.getElementById("leftPanel");
+const svgWrapper = document.getElementById("svg-wrapper");
+const sizeHandles = document.querySelectorAll('.resize-handle');
+
+if (svgWrapper && window.ResizeObserver) {
+    const ro = new ResizeObserver(() => {
+        scheduleUpdatePlot(true);
+    });
+    ro.observe(svgWrapper);
+}
+
+resizer.addEventListener("mousedown", function(e) {
+    e.preventDefault();
+    document.addEventListener("mousemove", resize);
+    document.addEventListener("mouseup", stopResize);
+    resizer.style.background = "#007bff";
+});
+
+function resize(e) {
+    const newWidth = e.clientX;
+    if (newWidth >= 0 && newWidth < 800) {
+        leftPanel.style.flex = `0 0 ${newWidth}px`;
+    }
+}
+
+function stopResize() {
+    document.removeEventListener("mousemove", resize);
+    resizer.style.background = "";
+}
+
+function handleContextMenu() {
+    copySvgToClipboard();
+}
+
+if (svgWrapper) {
+    svgWrapper.addEventListener("contextmenu", handleContextMenu);
+}
+
+let resizingChart = false;
+let resizeHandle = null;
+let startX = 0;
+let startY = 0;
+let startW = 0;
+let startH = 0;
+let startOffsetX = 0;
+let startOffsetY = 0;
+
+sizeHandles.forEach(handle => {
+    handle.addEventListener('mousedown', (e) => {
+        resizingChart = true;
+        resizeHandle = handle.dataset.handle;
+        startX = e.clientX;
+        startY = e.clientY;
+        startW = parseInt(document.getElementById('chartWidthVal').value, 10);
+        startH = parseInt(document.getElementById('chartHeightVal').value, 10);
+        startOffsetX = chartOffsetX;
+        startOffsetY = chartOffsetY;
+        e.preventDefault();
+    });
+});
+
+window.addEventListener('mousemove', (e) => {
+    if (!resizingChart) return;
+    const scale = getDisplayScale();
+    const dx = (e.clientX - startX) / scale;
+    const dy = (e.clientY - startY) / scale;
+    let newW = startW;
+    let newH = startH;
+
+    if (resizeHandle === 'tr' || resizeHandle === 'br') newW = startW + dx;
+    if (resizeHandle === 'tl' || resizeHandle === 'bl') {
+        newW = startW - dx;
+        chartOffsetX = startOffsetX + dx;
+    }
+    if (resizeHandle === 'bl' || resizeHandle === 'br') newH = startH + dy;
+    if (resizeHandle === 'tl' || resizeHandle === 'tr') {
+        newH = startH - dy;
+        chartOffsetY = startOffsetY + dy;
+    }
+
+    newW = Math.max(10, Math.round(newW));
+    newH = Math.max(10, Math.round(newH));
+
+    document.getElementById('chartWidthVal').value = newW;
+    document.getElementById('chartHeightVal').value = newH;
+    if (svgWrapper) {
+        svgWrapper.style.transform = `translate(${chartOffsetX}px, ${chartOffsetY}px)`;
+    }
+    const handlePosLeft = document.getElementById('handlePosLeft');
+    if (handlePosLeft) {
+        handlePosLeft.textContent = `L: ${Math.round(chartOffsetX)}`;
+    }
+    scheduleUpdatePlot();
+});
+
+window.addEventListener('mouseup', () => {
+    resizingChart = false;
+    resizeHandle = null;
+});
+
+</script>
+</body>
+</html>
