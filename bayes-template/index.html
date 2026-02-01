@@ -1,0 +1,891 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Bayesian Longitudinal Template</title>
+    <style>
+        :root {
+            --bg: #f4f1ea;
+            --panel: #efe4d2;
+            --card: #fff8ed;
+            --border: #d6c2a1;
+            --text: #2a2a27;
+            --muted: #6b655a;
+            --accent: #2f6f7e;
+            --accent-2: #f59f00;
+            --danger: #c0392b;
+            --focus: #2f6fed;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            background: radial-gradient(circle at top, #fffaf0 0%, #f4f1ea 45%, #e7dcc8 100%);
+            color: var(--text);
+            font-family: "Segoe UI", "Trebuchet MS", sans-serif;
+        }
+        header {
+            padding: 20px 28px 8px;
+        }
+        header h1 {
+            margin: 0 0 6px;
+            font-size: 1.6rem;
+            letter-spacing: 0.5px;
+        }
+        header p {
+            margin: 0;
+            color: var(--muted);
+            font-size: 0.95rem;
+        }
+        .layout {
+            display: grid;
+            grid-template-columns: 320px 1fr;
+            gap: 16px;
+            padding: 16px 24px 24px;
+            min-height: calc(100vh - 80px);
+        }
+        .panel {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 16px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+        }
+        .card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 12px;
+            margin-bottom: 12px;
+        }
+        .card h3 {
+            margin: 0 0 8px;
+            font-size: 0.95rem;
+        }
+        label {
+            display: block;
+            font-size: 0.8rem;
+            color: var(--muted);
+            margin-bottom: 4px;
+        }
+        input[type="file"], select, input[type="range"] {
+            width: 100%;
+        }
+        select, input[type="range"], .readout {
+            background: #fff;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 6px;
+            font-size: 0.85rem;
+        }
+        .readout {
+            margin-top: 8px;
+            text-align: center;
+            font-weight: 600;
+            color: var(--accent);
+        }
+        .hint {
+            font-size: 0.75rem;
+            color: var(--muted);
+            margin-top: 6px;
+        }
+        .checklist {
+            display: grid;
+            gap: 6px;
+            margin-top: 6px;
+            max-height: 180px;
+            overflow-y: auto;
+            padding-right: 6px;
+        }
+        .checklist label {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-weight: 400;
+            color: var(--text);
+            margin: 0;
+        }
+        .status {
+            font-size: 0.8rem;
+            color: var(--muted);
+        }
+        .plots {
+            display: grid;
+            grid-template-rows: 1fr 1fr;
+            gap: 16px;
+        }
+        .plot-card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 12px 12px 18px;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.6);
+        }
+        .plot-title {
+            font-size: 0.95rem;
+            margin: 4px 0 10px;
+            color: var(--muted);
+        }
+        .plot-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+        }
+        .plot-actions {
+            display: flex;
+            gap: 6px;
+        }
+        .plot-btn {
+            border: 1px solid var(--border);
+            background: #fff;
+            color: var(--text);
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 0.72rem;
+            cursor: pointer;
+        }
+        .plot-btn:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+        svg {
+            width: 100%;
+            height: 100%;
+        }
+        .legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px 12px;
+            font-size: 0.75rem;
+            color: var(--muted);
+            margin-top: 6px;
+        }
+        .legend span {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .legend i {
+            width: 12px;
+            height: 4px;
+            display: inline-block;
+            border-radius: 2px;
+        }
+        .tooltip-target {
+            position: relative;
+        }
+        .tooltip-target:hover::after {
+            content: attr(data-tooltip);
+            position: absolute;
+            left: 0;
+            top: -48px;
+            background: #1f2933;
+            color: #fff;
+            padding: 6px 8px;
+            font-size: 0.75rem;
+            border-radius: 6px;
+            width: 240px;
+            z-index: 10;
+        }
+        .button {
+            border: 1px solid var(--accent);
+            background: var(--accent);
+            color: #fff;
+            padding: 8px 10px;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            width: 100%;
+            margin-top: 6px;
+        }
+        .button.secondary {
+            background: transparent;
+            color: var(--accent);
+        }
+        @media (max-width: 980px) {
+            .layout {
+                grid-template-columns: 1fr;
+            }
+            .plots {
+                grid-template-rows: auto;
+                gap: 12px;
+            }
+        }
+    </style>
+</head>
+<body>
+<header>
+    <h1>Bayesian Longitudinal State-Space Template</h1>
+    <p>Load posterior draws (JSON) produced by the model runner, then adjust the CI slider to update both plots in real time.</p>
+</header>
+
+<div class="layout">
+    <div class="panel">
+        <div class="card">
+            <h3>1) Load Posterior Draws</h3>
+            <label for="posteriorInput">Posterior JSON</label>
+            <input type="file" id="posteriorInput" accept=".json">
+            <button class="button secondary" id="loadExampleBtn" type="button">Load Example JSON</button>
+            <div class="hint">Use fit_model.py to generate posterior_draws.json</div>
+        </div>
+
+        <div class="card">
+            <h3>2) Control Group</h3>
+            <label for="controlSelect">Control group</label>
+            <select id="controlSelect"></select>
+        </div>
+
+        <div class="card">
+            <h3>3) Time Points</h3>
+            <div id="timeChecklist" class="checklist"></div>
+        </div>
+
+        <div class="card">
+            <h3>4) Groups (non-control)</h3>
+            <div id="groupChecklist" class="checklist"></div>
+        </div>
+
+        <div class="card">
+            <h3>5) Credible Interval</h3>
+            <div class="tooltip-target" data-tooltip="Credible interval is a Bayesian posterior interval; adjusting it changes the uncertainty band/lines without changing the fitted model.">
+                <input type="range" id="ciSlider" min="0.5" max="0.99" step="0.01" value="0.9" title="Credible interval is a Bayesian posterior interval; adjusting it changes the uncertainty band/lines without changing the fitted model.">
+                <div class="readout" id="ciReadout" title="Credible interval is a Bayesian posterior interval; adjusting it changes the uncertainty band/lines without changing the fitted model."></div>
+            </div>
+            <div class="hint">Slider updates do not re-run MCMC; only cached draws are re-summarized.</div>
+        </div>
+
+        <div class="card">
+            <h3>Status</h3>
+            <div class="status" id="statusText">No data loaded.</div>
+        </div>
+    </div>
+
+    <div class="plots">
+        <div class="plot-card">
+            <div class="plot-header">
+                <div class="plot-title">Time-course (mode + credible interval band)</div>
+                <div class="plot-actions">
+                    <button class="plot-btn" type="button" data-export="timePlot" data-format="svg">Download SVG</button>
+                    <button class="plot-btn" type="button" data-export="timePlot" data-format="png">Download PNG</button>
+                </div>
+            </div>
+            <svg id="timePlot" viewBox="0 0 900 380" preserveAspectRatio="xMidYMid meet"></svg>
+            <div class="legend" id="timeLegend"></div>
+        </div>
+        <div class="plot-card">
+            <div class="plot-header">
+                <div class="plot-title">Difference posterior density (vs control)</div>
+                <div class="plot-actions">
+                    <button class="plot-btn" type="button" data-export="diffPlot" data-format="svg">Download SVG</button>
+                    <button class="plot-btn" type="button" data-export="diffPlot" data-format="png">Download PNG</button>
+                </div>
+            </div>
+            <svg id="diffPlot" viewBox="0 0 900 380" preserveAspectRatio="xMidYMid meet"></svg>
+            <div class="legend" id="diffLegend"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+const palette = ["#0b7285", "#e67700", "#2f9e44", "#d9480f", "#1c7ed6", "#862e9c", "#5f3dc4", "#c92a2a"];
+const state = {
+    data: null,
+    draws: null,
+    groups: [],
+    times: [],
+    controlIdx: 0,
+    ci: 0.9,
+    caches: null,
+};
+
+const statusText = document.getElementById("statusText");
+const controlSelect = document.getElementById("controlSelect");
+const timeChecklist = document.getElementById("timeChecklist");
+const groupChecklist = document.getElementById("groupChecklist");
+const ciSlider = document.getElementById("ciSlider");
+const ciReadout = document.getElementById("ciReadout");
+const posteriorInput = document.getElementById("posteriorInput");
+const loadExampleBtn = document.getElementById("loadExampleBtn");
+
+function setStatus(msg) {
+    statusText.textContent = msg;
+}
+
+function updateReadout() {
+    const pct = Math.round(state.ci * 100);
+    ciReadout.textContent = `CI = ${state.ci.toFixed(2)} (${pct}%)`;
+}
+
+function parseJsonFile(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+            try {
+                resolve(JSON.parse(reader.result));
+            } catch (err) {
+                reject(err);
+            }
+        };
+        reader.onerror = () => reject(reader.error);
+        reader.readAsText(file);
+    });
+}
+
+function ensureDataShape(data) {
+    if (!data || !data.draws || !data.groups || !data.times) {
+        throw new Error("Invalid JSON. Required keys: draws, groups, times.");
+    }
+}
+
+function buildChecklist(container, items, defaultAll = true) {
+    container.innerHTML = "";
+    items.forEach((item, idx) => {
+        const label = document.createElement("label");
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.value = String(item);
+        checkbox.checked = defaultAll;
+        checkbox.dataset.index = idx;
+        label.appendChild(checkbox);
+        label.appendChild(document.createTextNode(String(item)));
+        container.appendChild(label);
+    });
+}
+
+function getCheckedIndices(container) {
+    const boxes = Array.from(container.querySelectorAll("input[type=checkbox]"));
+    return boxes.filter(b => b.checked).map(b => parseInt(b.dataset.index, 10));
+}
+
+function quantileFromSorted(sorted, q) {
+    const n = sorted.length;
+    if (n === 0) return NaN;
+    const pos = (n - 1) * q;
+    const base = Math.floor(pos);
+    const rest = pos - base;
+    if (sorted[base + 1] !== undefined) {
+        return sorted[base] + rest * (sorted[base + 1] - sorted[base]);
+    }
+    return sorted[base];
+}
+
+function kdeMode(samples) {
+    const n = samples.length;
+    if (n === 0) return NaN;
+    let mean = 0;
+    for (let i = 0; i < n; i++) mean += samples[i];
+    mean /= n;
+    let variance = 0;
+    for (let i = 0; i < n; i++) variance += (samples[i] - mean) ** 2;
+    variance /= Math.max(1, n - 1);
+    const std = Math.sqrt(variance) || 1e-6;
+    const bandwidth = 1.06 * std * Math.pow(n, -0.2);
+
+    let min = samples[0];
+    let max = samples[0];
+    for (let i = 1; i < n; i++) {
+        if (samples[i] < min) min = samples[i];
+        if (samples[i] > max) max = samples[i];
+    }
+    const padding = (max - min) * 0.1 + 1e-6;
+    min -= padding;
+    max += padding;
+    const gridCount = 200;
+    let bestX = min;
+    let bestVal = -Infinity;
+    for (let i = 0; i < gridCount; i++) {
+        const x = min + (i / (gridCount - 1)) * (max - min);
+        let sum = 0;
+        for (let j = 0; j < n; j++) {
+            const z = (x - samples[j]) / bandwidth;
+            sum += Math.exp(-0.5 * z * z);
+        }
+        if (sum > bestVal) {
+            bestVal = sum;
+            bestX = x;
+        }
+    }
+    return bestX;
+}
+
+function kdeDensity(samples) {
+    const n = samples.length;
+    if (n === 0) return { x: [], y: [] };
+    let mean = 0;
+    for (let i = 0; i < n; i++) mean += samples[i];
+    mean /= n;
+    let variance = 0;
+    for (let i = 0; i < n; i++) variance += (samples[i] - mean) ** 2;
+    variance /= Math.max(1, n - 1);
+    const std = Math.sqrt(variance) || 1e-6;
+    const bandwidth = 1.06 * std * Math.pow(n, -0.2);
+
+    let min = samples[0];
+    let max = samples[0];
+    for (let i = 1; i < n; i++) {
+        if (samples[i] < min) min = samples[i];
+        if (samples[i] > max) max = samples[i];
+    }
+    const padding = (max - min) * 0.1 + 1e-6;
+    min -= padding;
+    max += padding;
+
+    const gridCount = 180;
+    const xs = new Array(gridCount);
+    const ys = new Array(gridCount);
+    let maxY = 0;
+    for (let i = 0; i < gridCount; i++) {
+        const x = min + (i / (gridCount - 1)) * (max - min);
+        let sum = 0;
+        for (let j = 0; j < n; j++) {
+            const z = (x - samples[j]) / bandwidth;
+            sum += Math.exp(-0.5 * z * z);
+        }
+        xs[i] = x;
+        ys[i] = sum;
+        if (sum > maxY) maxY = sum;
+    }
+    if (maxY > 0) {
+        for (let i = 0; i < ys.length; i++) ys[i] /= maxY;
+    }
+    return { x: xs, y: ys };
+}
+
+function buildCaches() {
+    const draws = state.draws;
+    const nDraws = draws.length;
+    const nTimes = state.times.length;
+    const nGroups = state.groups.length;
+
+    const A_sorted = Array.from({ length: nTimes }, () => Array(nGroups));
+    const A_mode = Array.from({ length: nTimes }, () => Array(nGroups));
+
+    for (let t = 0; t < nTimes; t++) {
+        for (let g = 0; g < nGroups; g++) {
+            const arr = new Float64Array(nDraws);
+            for (let d = 0; d < nDraws; d++) arr[d] = draws[d][t][g];
+            const sorted = Array.from(arr).sort((a, b) => a - b);
+            A_sorted[t][g] = sorted;
+            A_mode[t][g] = kdeMode(arr);
+        }
+    }
+
+    return { A_sorted, A_mode, D_sorted: null, D_mode: null, D_density: {} };
+}
+
+function buildDiffCaches(controlIdx) {
+    const draws = state.draws;
+    const nDraws = draws.length;
+    const nTimes = state.times.length;
+    const nGroups = state.groups.length;
+    const D_sorted = Array.from({ length: nTimes }, () => Array(nGroups));
+    const D_mode = Array.from({ length: nTimes }, () => Array(nGroups));
+
+    for (let t = 0; t < nTimes; t++) {
+        for (let g = 0; g < nGroups; g++) {
+            if (g === controlIdx) {
+                D_sorted[t][g] = null;
+                D_mode[t][g] = null;
+                continue;
+            }
+            const arr = new Float64Array(nDraws);
+            for (let d = 0; d < nDraws; d++) {
+                arr[d] = draws[d][t][g] - draws[d][t][controlIdx];
+            }
+            const sorted = Array.from(arr).sort((a, b) => a - b);
+            D_sorted[t][g] = sorted;
+            D_mode[t][g] = kdeMode(arr);
+        }
+    }
+
+    state.caches.D_sorted = D_sorted;
+    state.caches.D_mode = D_mode;
+    state.caches.D_density = {};
+}
+
+function getDensityCacheKey(t, g, controlIdx) {
+    return `${t}_${g}_${controlIdx}`;
+}
+
+function getDiffDensity(t, g) {
+    const key = getDensityCacheKey(t, g, state.controlIdx);
+    if (state.caches.D_density[key]) return state.caches.D_density[key];
+    const samples = state.caches.D_sorted[t][g];
+    if (!samples) return { x: [], y: [] };
+    const density = kdeDensity(samples);
+    state.caches.D_density[key] = density;
+    return density;
+}
+
+function clearSvg(svg) {
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+}
+
+function drawAxes(svg, width, height, xLabel, yLabel) {
+    const margin = { top: 20, right: 20, bottom: 40, left: 60 };
+    const axisGroup = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    axisGroup.setAttribute("transform", `translate(${margin.left},${margin.top})`);
+    svg.appendChild(axisGroup);
+    return { margin, axisGroup };
+}
+
+function renderTimeCourse() {
+    const svg = document.getElementById("timePlot");
+    clearSvg(svg);
+
+    if (!state.data) return;
+
+    const width = 900;
+    const height = 380;
+    const { margin } = drawAxes(svg, width, height);
+    const innerW = width - margin.left - margin.right;
+    const innerH = height - margin.top - margin.bottom;
+
+    const times = state.times;
+    const xMin = Math.min(...times);
+    const xMax = Math.max(...times);
+
+    const groupsToDraw = state.groups.map((g, idx) => idx);
+
+    const lowerQ = (1 - state.ci) / 2;
+    const upperQ = 1 - lowerQ;
+
+    let yMin = Infinity;
+    let yMax = -Infinity;
+
+    groupsToDraw.forEach((gIdx) => {
+        for (let t = 0; t < times.length; t++) {
+            const sorted = state.caches.A_sorted[t][gIdx];
+            const lo = quantileFromSorted(sorted, lowerQ);
+            const hi = quantileFromSorted(sorted, upperQ);
+            yMin = Math.min(yMin, lo);
+            yMax = Math.max(yMax, hi);
+        }
+    });
+    if (!isFinite(yMin) || !isFinite(yMax)) return;
+    const yPad = (yMax - yMin) * 0.1 + 1e-6;
+    yMin -= yPad;
+    yMax += yPad;
+
+    const xScale = (x) => margin.left + ((x - xMin) / (xMax - xMin || 1)) * innerW;
+    const yScale = (y) => margin.top + innerH - ((y - yMin) / (yMax - yMin || 1)) * innerH;
+
+    const axis = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    svg.appendChild(axis);
+    axis.innerHTML = `
+        <line x1="${margin.left}" y1="${margin.top}" x2="${margin.left}" y2="${margin.top + innerH}" stroke="#8c7f6c" />
+        <line x1="${margin.left}" y1="${margin.top + innerH}" x2="${margin.left + innerW}" y2="${margin.top + innerH}" stroke="#8c7f6c" />
+    `;
+
+    const tickCount = 5;
+    for (let i = 0; i <= tickCount; i++) {
+        const yVal = yMin + (i / tickCount) * (yMax - yMin);
+        const y = yScale(yVal);
+        const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        label.setAttribute("x", margin.left - 8);
+        label.setAttribute("y", y + 4);
+        label.setAttribute("text-anchor", "end");
+        label.setAttribute("font-size", "10");
+        label.textContent = yVal.toFixed(2);
+        svg.appendChild(label);
+    }
+
+    times.forEach((t) => {
+        const x = xScale(t);
+        const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        label.setAttribute("x", x);
+        label.setAttribute("y", margin.top + innerH + 18);
+        label.setAttribute("text-anchor", "middle");
+        label.setAttribute("font-size", "10");
+        label.textContent = t;
+        svg.appendChild(label);
+    });
+
+    const legend = document.getElementById("timeLegend");
+    legend.innerHTML = "";
+
+    groupsToDraw.forEach((gIdx, i) => {
+        const color = palette[i % palette.length];
+        const modePath = [];
+        const upperPath = [];
+        const lowerPath = [];
+        for (let t = 0; t < times.length; t++) {
+            const sorted = state.caches.A_sorted[t][gIdx];
+            const mode = state.caches.A_mode[t][gIdx];
+            const lo = quantileFromSorted(sorted, lowerQ);
+            const hi = quantileFromSorted(sorted, upperQ);
+            const x = xScale(times[t]);
+            modePath.push(`${x},${yScale(mode)}`);
+            upperPath.push(`${x},${yScale(hi)}`);
+            lowerPath.push(`${x},${yScale(lo)}`);
+        }
+        const band = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        const bandPath = `M ${upperPath.join(" L ")} L ${lowerPath.reverse().join(" L ")} Z`;
+        band.setAttribute("d", bandPath);
+        band.setAttribute("fill", color);
+        band.setAttribute("opacity", "0.15");
+        svg.appendChild(band);
+
+        const line = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
+        line.setAttribute("points", modePath.join(" "));
+        line.setAttribute("fill", "none");
+        line.setAttribute("stroke", color);
+        line.setAttribute("stroke-width", "2");
+        svg.appendChild(line);
+
+        const legendItem = document.createElement("span");
+        legendItem.innerHTML = `<i style="background:${color}"></i>${state.groups[gIdx]}`;
+        legend.appendChild(legendItem);
+    });
+}
+
+function renderDifference() {
+    const svg = document.getElementById("diffPlot");
+    clearSvg(svg);
+
+    if (!state.data) return;
+    const width = 900;
+    const height = 380;
+    const { margin } = drawAxes(svg, width, height);
+    const innerW = width - margin.left - margin.right;
+    const innerH = height - margin.top - margin.bottom;
+
+    const selectedTimes = getCheckedIndices(timeChecklist);
+    const selectedGroups = getCheckedIndices(groupChecklist)
+        .map(idx => idx >= state.controlIdx ? idx + 1 : idx);
+
+    const densities = [];
+    let xMin = Infinity;
+    let xMax = -Infinity;
+
+    selectedTimes.forEach((tIdx) => {
+        selectedGroups.forEach((gIdx) => {
+            if (gIdx === state.controlIdx) return;
+            const density = getDiffDensity(tIdx, gIdx);
+            if (density.x.length === 0) return;
+            densities.push({ tIdx, gIdx, density });
+            xMin = Math.min(xMin, density.x[0]);
+            xMax = Math.max(xMax, density.x[density.x.length - 1]);
+        });
+    });
+
+    if (!isFinite(xMin) || !isFinite(xMax)) return;
+    const xPad = (xMax - xMin) * 0.1 + 1e-6;
+    xMin -= xPad;
+    xMax += xPad;
+
+    const xScale = (x) => margin.left + ((x - xMin) / (xMax - xMin || 1)) * innerW;
+    const yScale = (y) => margin.top + innerH - y * innerH;
+
+    const axis = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    svg.appendChild(axis);
+    axis.innerHTML = `
+        <line x1="${margin.left}" y1="${margin.top}" x2="${margin.left}" y2="${margin.top + innerH}" stroke="#8c7f6c" />
+        <line x1="${margin.left}" y1="${margin.top + innerH}" x2="${margin.left + innerW}" y2="${margin.top + innerH}" stroke="#8c7f6c" />
+    `;
+
+    const tickCount = 5;
+    for (let i = 0; i <= tickCount; i++) {
+        const xVal = xMin + (i / tickCount) * (xMax - xMin);
+        const x = xScale(xVal);
+        const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        label.setAttribute("x", x);
+        label.setAttribute("y", margin.top + innerH + 18);
+        label.setAttribute("text-anchor", "middle");
+        label.setAttribute("font-size", "10");
+        label.textContent = xVal.toFixed(2);
+        svg.appendChild(label);
+    }
+
+    const legend = document.getElementById("diffLegend");
+    legend.innerHTML = "";
+
+    const lowerQ = (1 - state.ci) / 2;
+    const upperQ = 1 - lowerQ;
+
+    densities.forEach((item, idx) => {
+        const color = palette[idx % palette.length];
+        const { tIdx, gIdx, density } = item;
+        const path = density.x.map((x, i) => `${xScale(x)},${yScale(density.y[i])}`).join(" ");
+        const polyline = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
+        polyline.setAttribute("points", path);
+        polyline.setAttribute("fill", "none");
+        polyline.setAttribute("stroke", color);
+        polyline.setAttribute("stroke-width", "2");
+        svg.appendChild(polyline);
+
+        const sorted = state.caches.D_sorted[tIdx][gIdx];
+        const mode = state.caches.D_mode[tIdx][gIdx];
+        const lo = quantileFromSorted(sorted, lowerQ);
+        const hi = quantileFromSorted(sorted, upperQ);
+
+        const modeLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        modeLine.setAttribute("x1", xScale(mode));
+        modeLine.setAttribute("x2", xScale(mode));
+        modeLine.setAttribute("y1", margin.top);
+        modeLine.setAttribute("y2", margin.top + innerH);
+        modeLine.setAttribute("stroke", color);
+        modeLine.setAttribute("stroke-dasharray", "4,4");
+        svg.appendChild(modeLine);
+
+        [lo, hi].forEach((val) => {
+            const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+            line.setAttribute("x1", xScale(val));
+            line.setAttribute("x2", xScale(val));
+            line.setAttribute("y1", margin.top);
+            line.setAttribute("y2", margin.top + innerH);
+            line.setAttribute("stroke", color);
+            line.setAttribute("stroke-width", "2");
+            svg.appendChild(line);
+        });
+
+        const legendItem = document.createElement("span");
+        legendItem.innerHTML = `<i style="background:${color}"></i>${state.groups[gIdx]} @ t=${state.times[tIdx]}`;
+        legend.appendChild(legendItem);
+    });
+}
+
+function updatePlots() {
+    if (!state.data) return;
+    renderTimeCourse();
+    renderDifference();
+}
+
+function setupControls() {
+    controlSelect.innerHTML = "";
+    state.groups.forEach((g, idx) => {
+        const option = document.createElement("option");
+        option.value = idx;
+        option.textContent = g;
+        controlSelect.appendChild(option);
+    });
+    controlSelect.value = state.controlIdx;
+
+    buildChecklist(timeChecklist, state.times, true);
+    const nonControlGroups = state.groups.filter((g, idx) => idx !== state.controlIdx);
+    buildChecklist(groupChecklist, nonControlGroups, true);
+
+    controlSelect.addEventListener("change", () => {
+        state.controlIdx = parseInt(controlSelect.value, 10);
+        const nonControl = state.groups.filter((g, idx) => idx !== state.controlIdx);
+        buildChecklist(groupChecklist, nonControl, true);
+        buildDiffCaches(state.controlIdx);
+        updatePlots();
+    });
+
+    timeChecklist.addEventListener("change", updatePlots);
+    groupChecklist.addEventListener("change", updatePlots);
+}
+
+posteriorInput.addEventListener("change", async (evt) => {
+    const file = evt.target.files[0];
+    if (!file) return;
+    try {
+        const data = await parseJsonFile(file);
+        ensureDataShape(data);
+        loadData(data);
+    } catch (err) {
+        setStatus(`Failed to load JSON: ${err.message}`);
+    }
+});
+
+loadExampleBtn.addEventListener("click", async () => {
+    try {
+        const response = await fetch("example_posterior.json");
+        const data = await response.json();
+        loadData(data);
+    } catch (err) {
+        setStatus("Example JSON not found. Run fit_model.py to generate it.");
+    }
+});
+
+function loadData(data) {
+    state.data = data;
+    state.draws = data.draws;
+    state.groups = data.groups;
+    state.times = data.times;
+    if (data.meta && typeof data.meta.control_group === "string") {
+        const idx = state.groups.indexOf(data.meta.control_group);
+        state.controlIdx = idx >= 0 ? idx : 0;
+    } else {
+        state.controlIdx = 0;
+    }
+    state.caches = buildCaches();
+    buildDiffCaches(state.controlIdx);
+    setupControls();
+    updateReadout();
+    setStatus(`Loaded ${data.draws.length} draws, ${data.groups.length} groups, ${data.times.length} time points.`);
+    updatePlots();
+}
+
+ciSlider.addEventListener("input", () => {
+    state.ci = parseFloat(ciSlider.value);
+    updateReadout();
+    updatePlots();
+});
+
+function downloadSvg(svgId, filename) {
+    const svg = document.getElementById(svgId);
+    if (!svg) return;
+    const serializer = new XMLSerializer();
+    const source = serializer.serializeToString(svg);
+    const blob = new Blob([source], { type: "image/svg+xml;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+}
+
+function downloadPng(svgId, filename) {
+    const svg = document.getElementById(svgId);
+    if (!svg) return;
+    const serializer = new XMLSerializer();
+    const source = serializer.serializeToString(svg);
+    const svgBlob = new Blob([source], { type: "image/svg+xml;charset=utf-8" });
+    const url = URL.createObjectURL(svgBlob);
+    const img = new Image();
+    img.onload = () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = 900;
+        canvas.height = 380;
+        const ctx = canvas.getContext("2d");
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0);
+        URL.revokeObjectURL(url);
+        canvas.toBlob((blob) => {
+            if (!blob) return;
+            const pngUrl = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.href = pngUrl;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(pngUrl);
+        }, "image/png");
+    };
+    img.src = url;
+}
+
+document.querySelectorAll("[data-export]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+        const svgId = btn.dataset.export;
+        const format = btn.dataset.format;
+        const base = svgId === "timePlot" ? "time-course" : "difference-density";
+        if (format === "svg") {
+            downloadSvg(svgId, `${base}.svg`);
+        } else {
+            downloadPng(svgId, `${base}.png`);
+        }
+    });
+});
+
+updateReadout();
+</script>
+</body>
+</html>
