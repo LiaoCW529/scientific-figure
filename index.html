@@ -184,6 +184,23 @@
             background: var(--button-hover);
             color: var(--button-text);
         }
+        .longitudinal-svg-wrapper {
+            position: relative;
+            display: inline-block;
+        }
+        .longitudinal-handle {
+            width: 10px;
+            height: 10px;
+            background: #ff69b4;
+            border: 1px solid #d84c8f;
+            border-radius: 50%;
+            position: absolute;
+            z-index: 5;
+        }
+        .longitudinal-handle.tl { top: -6px; left: -6px; cursor: nwse-resize; }
+        .longitudinal-handle.tr { top: -6px; right: -6px; cursor: nesw-resize; }
+        .longitudinal-handle.bl { bottom: -6px; left: -6px; cursor: nesw-resize; }
+        .longitudinal-handle.br { bottom: -6px; right: -6px; cursor: nwse-resize; }
         .longitudinal-size-row {
             display: flex;
             gap: 8px;
@@ -1152,8 +1169,12 @@
                     <input type="number" id="longitudinalTimeWidth" value="900" min="300">
                     <input type="number" id="longitudinalTimeHeight" value="360" min="200">
                 </div>
-                <div style="border:1px solid var(--border); border-radius:8px; padding:4px; background: var(--svg-bg);">
+                <div class="longitudinal-svg-wrapper" id="longitudinalTimeWrapper" style="border:1px solid var(--border); border-radius:8px; padding:4px; background: var(--svg-bg);">
                     <svg id="longitudinalTimePlot" viewBox="0 0 900 360" preserveAspectRatio="xMidYMid meet"></svg>
+                    <div class="longitudinal-handle tl" data-target="time" data-handle="tl"></div>
+                    <div class="longitudinal-handle tr" data-target="time" data-handle="tr"></div>
+                    <div class="longitudinal-handle bl" data-target="time" data-handle="bl"></div>
+                    <div class="longitudinal-handle br" data-target="time" data-handle="br"></div>
                 </div>
                 <div id="longitudinalTimeLegend" class="legend-row" style="font-size:0.75rem; color: var(--muted); flex-wrap: wrap;"></div>
             </div>
@@ -1170,8 +1191,12 @@
                     <input type="number" id="longitudinalDiffWidth" value="900" min="300">
                     <input type="number" id="longitudinalDiffHeight" value="360" min="200">
                 </div>
-                <div style="border:1px solid var(--border); border-radius:8px; padding:4px; background: var(--svg-bg);">
+                <div class="longitudinal-svg-wrapper" id="longitudinalDiffWrapper" style="border:1px solid var(--border); border-radius:8px; padding:4px; background: var(--svg-bg);">
                     <svg id="longitudinalDiffPlot" viewBox="0 0 900 360" preserveAspectRatio="xMidYMid meet"></svg>
+                    <div class="longitudinal-handle tl" data-target="diff" data-handle="tl"></div>
+                    <div class="longitudinal-handle tr" data-target="diff" data-handle="tr"></div>
+                    <div class="longitudinal-handle bl" data-target="diff" data-handle="bl"></div>
+                    <div class="longitudinal-handle br" data-target="diff" data-handle="br"></div>
                 </div>
                 <div id="longitudinalDiffLegend" class="legend-row" style="font-size:0.75rem; color: var(--muted); flex-wrap: wrap;"></div>
             </div>
@@ -1310,6 +1335,10 @@ const longitudinalState = {
     sizes: {
         time: { width: 900, height: 360 },
         diff: { width: 900, height: 360 }
+    },
+    offsets: {
+        time: { x: 0, y: 0 },
+        diff: { x: 0, y: 0 }
     }
 };
 const explorerMinBase = 10;
@@ -2436,6 +2465,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const longitudinalTimeHeight = document.getElementById('longitudinalTimeHeight');
     const longitudinalDiffWidth = document.getElementById('longitudinalDiffWidth');
     const longitudinalDiffHeight = document.getElementById('longitudinalDiffHeight');
+    const longitudinalHandles = document.querySelectorAll('.longitudinal-handle');
+    const longitudinalTimeWrapper = document.getElementById('longitudinalTimeWrapper');
+    const longitudinalDiffWrapper = document.getElementById('longitudinalDiffWrapper');
 
     if (longitudinalRawInput) {
         longitudinalRawInput.addEventListener('change', (evt) => {
@@ -2585,6 +2617,107 @@ document.addEventListener('DOMContentLoaded', () => {
             updateLongitudinalPlots();
         });
     }
+
+    let resizing = false;
+    let activeTarget = null;
+    let activeHandle = null;
+    let startX = 0;
+    let startY = 0;
+    let startW = 0;
+    let startH = 0;
+    let startOffsetX = 0;
+    let startOffsetY = 0;
+
+    longitudinalHandles.forEach((handle) => {
+        handle.addEventListener('mousedown', (e) => {
+            resizing = true;
+            activeTarget = handle.dataset.target;
+            activeHandle = handle.dataset.handle;
+            startX = e.clientX;
+            startY = e.clientY;
+            const size = longitudinalState.sizes[activeTarget];
+            startW = size.width;
+            startH = size.height;
+            const offset = longitudinalState.offsets[activeTarget];
+            startOffsetX = offset.x;
+            startOffsetY = offset.y;
+            e.preventDefault();
+        });
+    });
+
+    if (longitudinalTimeWrapper) {
+        longitudinalTimeWrapper.addEventListener('mousedown', (e) => {
+            if (e.target.classList.contains('longitudinal-handle')) return;
+            activeTarget = 'time';
+            startX = e.clientX;
+            startY = e.clientY;
+            startOffsetX = longitudinalState.offsets.time.x;
+            startOffsetY = longitudinalState.offsets.time.y;
+            const onMove = (evt) => {
+                const dx = evt.clientX - startX;
+                const dy = evt.clientY - startY;
+                longitudinalState.offsets.time.x = startOffsetX + dx;
+                longitudinalState.offsets.time.y = startOffsetY + dy;
+                updateLongitudinalPlots();
+            };
+            const onUp = () => {
+                window.removeEventListener('mousemove', onMove);
+                window.removeEventListener('mouseup', onUp);
+            };
+            window.addEventListener('mousemove', onMove);
+            window.addEventListener('mouseup', onUp);
+        });
+    }
+    if (longitudinalDiffWrapper) {
+        longitudinalDiffWrapper.addEventListener('mousedown', (e) => {
+            if (e.target.classList.contains('longitudinal-handle')) return;
+            activeTarget = 'diff';
+            startX = e.clientX;
+            startY = e.clientY;
+            startOffsetX = longitudinalState.offsets.diff.x;
+            startOffsetY = longitudinalState.offsets.diff.y;
+            const onMove = (evt) => {
+                const dx = evt.clientX - startX;
+                const dy = evt.clientY - startY;
+                longitudinalState.offsets.diff.x = startOffsetX + dx;
+                longitudinalState.offsets.diff.y = startOffsetY + dy;
+                updateLongitudinalPlots();
+            };
+            const onUp = () => {
+                window.removeEventListener('mousemove', onMove);
+                window.removeEventListener('mouseup', onUp);
+            };
+            window.addEventListener('mousemove', onMove);
+            window.addEventListener('mouseup', onUp);
+        });
+    }
+
+    window.addEventListener('mousemove', (e) => {
+        if (!resizing || !activeTarget) return;
+        const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+        let newW = startW;
+        let newH = startH;
+        if (activeHandle === 'tr' || activeHandle === 'br') newW = startW + dx;
+        if (activeHandle === 'tl' || activeHandle === 'bl') {
+            newW = startW - dx;
+            longitudinalState.offsets[activeTarget].x = startOffsetX + dx;
+        }
+        if (activeHandle === 'bl' || activeHandle === 'br') newH = startH + dy;
+        if (activeHandle === 'tl' || activeHandle === 'tr') {
+            newH = startH - dy;
+            longitudinalState.offsets[activeTarget].y = startOffsetY + dy;
+        }
+        longitudinalState.sizes[activeTarget].width = Math.max(300, Math.round(newW));
+        longitudinalState.sizes[activeTarget].height = Math.max(200, Math.round(newH));
+        longitudinalSyncSizeInputs();
+        updateLongitudinalPlots();
+    });
+    window.addEventListener('mouseup', () => {
+        resizing = false;
+        activeTarget = null;
+        activeHandle = null;
+    });
     [longitudinalIdCol, longitudinalGroupCol, longitudinalTimeCol, longitudinalYCol].forEach((input) => {
         if (!input) return;
         input.addEventListener('change', () => {
@@ -3726,6 +3859,10 @@ function longitudinalRenderTimeCourse() {
     svg.setAttribute('viewBox', `0 0 ${longitudinalState.sizes.time.width} ${longitudinalState.sizes.time.height}`);
     svg.style.width = `${longitudinalState.sizes.time.width}px`;
     svg.style.height = `${longitudinalState.sizes.time.height}px`;
+    const wrapper = document.getElementById('longitudinalTimeWrapper');
+    if (wrapper) {
+        wrapper.style.transform = `translate(${longitudinalState.offsets.time.x}px, ${longitudinalState.offsets.time.y}px)`;
+    }
 
     const width = longitudinalState.sizes.time.width;
     const height = longitudinalState.sizes.time.height;
@@ -3863,6 +4000,10 @@ function longitudinalRenderDifference() {
     svg.setAttribute('viewBox', `0 0 ${longitudinalState.sizes.diff.width} ${longitudinalState.sizes.diff.height}`);
     svg.style.width = `${longitudinalState.sizes.diff.width}px`;
     svg.style.height = `${longitudinalState.sizes.diff.height}px`;
+    const wrapper = document.getElementById('longitudinalDiffWrapper');
+    if (wrapper) {
+        wrapper.style.transform = `translate(${longitudinalState.offsets.diff.x}px, ${longitudinalState.offsets.diff.y}px)`;
+    }
 
     const width = longitudinalState.sizes.diff.width;
     const height = longitudinalState.sizes.diff.height;
