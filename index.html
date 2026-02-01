@@ -152,6 +152,38 @@
             overflow-y: auto;
         }
         .stats-panel { background: var(--panel); padding: 20px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.08); }
+        .longitudinal-area { display: none; flex-direction: column; gap: 16px; }
+        .longitudinal-plot-card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+        }
+        .longitudinal-plot-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            font-size: 0.9rem;
+            color: var(--muted);
+            margin-bottom: 10px;
+        }
+        .longitudinal-actions { display: flex; gap: 6px; }
+        .longitudinal-btn {
+            border: 1px solid var(--border);
+            background: var(--card);
+            color: var(--text);
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 0.7rem;
+            cursor: pointer;
+        }
+        .longitudinal-btn:hover {
+            border-color: var(--button-hover);
+            background: var(--button-hover);
+            color: var(--button-text);
+        }
         .code-board { background: var(--card) !important; color: var(--text) !important; padding: 15px; border-radius: 8px; font-family: "SF Mono", monospace; font-size: 11px; overflow-x: auto; white-space: pre; border: 1px solid var(--border); }
         .visual-controls { display: grid; grid-template-columns: repeat(3, minmax(220px, 1fr)); gap: 10px; }
         .control-card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
@@ -819,13 +851,6 @@
                 <option value="dark">Dark</option>
             </select>
         </div>
-        <div class="master-label-card">
-            <label style="margin-bottom:6px;">Templates</label>
-            <button type="button" class="btn-add" onclick="window.location.href='bayes-template/index.html'">Open Bayesian Longitudinal Template</button>
-            <div style="font-size:0.75rem; color: var(--muted); margin-top:6px;">
-                Uses posterior draws + CI slider for real-time updates.
-            </div>
-        </div>
         <h3 style="margin-top:0;">1. Time Points / Labels</h3>
         <div class="master-label-card" style="margin-bottom: 20px;">
             <label style="display: block; font-weight: bold; color: #d9480f; margin-bottom: 6px;">Mode</label>
@@ -833,6 +858,7 @@
                 <option value="time">Time Series Mode</option>
                 <option value="comparison" selected>Comparison Mode</option>
                 <option value="survival">Survival Mode</option>
+                <option value="longitudinal">Longitudinal State-Space Mode</option>
             </select>
         </div>
         <div class="master-label-card">
@@ -841,11 +867,44 @@
                 <button type="button" class="btn-add" style="margin:0;" onclick="loadSampleTimeline()">Time Series Sample</button>
                 <button type="button" class="btn-add" style="margin:0;" onclick="loadSampleComparison()">Two-Group Sample</button>
                 <button type="button" class="btn-add" style="margin:0;" onclick="loadSampleSurvival()">Survival Sample</button>
+                <button type="button" class="btn-add" style="margin:0;" onclick="loadSampleLongitudinal()">Longitudinal State-Space Template</button>
             </div>
         </div>
         <div class="master-label-card" id="timeSeriesSection">
             <label>Shared X-Labels (Space separated)</label>
             <input type="text" id="timePointsInput" class="text-input" value="Day1 Day3 Day7" oninput="updatePlot()">
+        </div>
+        <div class="master-label-card" id="longitudinalSection" style="display:none;">
+            <label style="margin-bottom:6px;">Longitudinal State-Space Inputs</label>
+            <div style="display:grid; gap:8px;">
+                <div>
+                    <label style="font-size:0.75rem; color: var(--muted);">Raw CSV (id/group/time/y)</label>
+                    <input type="file" id="longitudinalRawInput" accept=".csv">
+                </div>
+                <div>
+                    <label style="font-size:0.75rem; color: var(--muted);">Posterior Draws (JSON)</label>
+                    <input type="file" id="longitudinalPosteriorInput" accept=".json">
+                </div>
+                <div style="display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap:6px;">
+                    <div>
+                        <label style="font-size:0.7rem; color: var(--muted);">id column</label>
+                        <input type="text" id="longitudinalIdCol" class="text-input" value="id">
+                    </div>
+                    <div>
+                        <label style="font-size:0.7rem; color: var(--muted);">group column</label>
+                        <input type="text" id="longitudinalGroupCol" class="text-input" value="group">
+                    </div>
+                    <div>
+                        <label style="font-size:0.7rem; color: var(--muted);">time column</label>
+                        <input type="text" id="longitudinalTimeCol" class="text-input" value="time">
+                    </div>
+                    <div>
+                        <label style="font-size:0.7rem; color: var(--muted);">y column</label>
+                        <input type="text" id="longitudinalYCol" class="text-input" value="y">
+                    </div>
+                </div>
+                <div id="longitudinalStatus" style="font-size:0.75rem; color: var(--muted);"></div>
+            </div>
         </div>
 
         <div id="groupDataSection">
@@ -1064,6 +1123,56 @@
                 </div>
             </div>
         </div>
+        <div class="longitudinal-area" id="longitudinalArea">
+            <div class="longitudinal-plot-card">
+                <div class="longitudinal-plot-header">
+                    <div>Time-course (mode + credible interval band)</div>
+                    <div class="longitudinal-actions">
+                        <button class="longitudinal-btn" type="button" data-longitudinal-export="longitudinalTimePlot" data-format="svg">Download SVG</button>
+                        <button class="longitudinal-btn" type="button" data-longitudinal-export="longitudinalTimePlot" data-format="png">Download PNG</button>
+                    </div>
+                </div>
+                <svg id="longitudinalTimePlot" viewBox="0 0 900 360" preserveAspectRatio="xMidYMid meet"></svg>
+                <div id="longitudinalTimeLegend" class="legend-row" style="font-size:0.75rem; color: var(--muted); flex-wrap: wrap;"></div>
+            </div>
+            <div class="longitudinal-plot-card">
+                <div class="longitudinal-plot-header">
+                    <div>Difference posterior density (vs control)</div>
+                    <div class="longitudinal-actions">
+                        <button class="longitudinal-btn" type="button" data-longitudinal-export="longitudinalDiffPlot" data-format="svg">Download SVG</button>
+                        <button class="longitudinal-btn" type="button" data-longitudinal-export="longitudinalDiffPlot" data-format="png">Download PNG</button>
+                    </div>
+                </div>
+                <svg id="longitudinalDiffPlot" viewBox="0 0 900 360" preserveAspectRatio="xMidYMid meet"></svg>
+                <div id="longitudinalDiffLegend" class="legend-row" style="font-size:0.75rem; color: var(--muted); flex-wrap: wrap;"></div>
+            </div>
+            <div class="longitudinal-plot-card">
+                <div class="longitudinal-plot-header">
+                    <div>Longitudinal Controls</div>
+                </div>
+                <div style="display:grid; gap:10px; grid-template-columns: repeat(3, minmax(0, 1fr));">
+                    <div>
+                        <label style="font-size:0.75rem; color: var(--muted);">Control group</label>
+                        <select id="longitudinalControlSelect" class="text-input"></select>
+                    </div>
+                    <div>
+                        <label style="font-size:0.75rem; color: var(--muted);">Credible Interval</label>
+                        <input type="range" id="longitudinalCiSlider" min="0.5" max="0.99" step="0.01" value="0.9"
+                            title="Credible interval is a Bayesian posterior interval; adjusting it changes the uncertainty band/lines without changing the fitted model.">
+                        <div id="longitudinalCiReadout" style="font-size:0.8rem; color: var(--muted); margin-top:4px;"
+                            title="Credible interval is a Bayesian posterior interval; adjusting it changes the uncertainty band/lines without changing the fitted model."></div>
+                    </div>
+                    <div>
+                        <label style="font-size:0.75rem; color: var(--muted);">Time points</label>
+                        <div id="longitudinalTimeChecklist" class="option-list" style="max-height:140px; overflow:auto;"></div>
+                    </div>
+                    <div>
+                        <label style="font-size:0.75rem; color: var(--muted);">Groups (non-control)</label>
+                        <div id="longitudinalGroupChecklist" class="option-list" style="max-height:140px; overflow:auto;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
 
         <div class="stats-panel">
             <h3>3. Statistical Analysis Board</h3>
@@ -1111,6 +1220,16 @@ const explorerColDefaultWidth = 120;
 const explorerColStorageKey = 'csvPreviewColWidths';
 const explorerHideDecimalsKey = 'csvPreviewHideDecimals';
 let explorerHideDecimals = null;
+const longitudinalState = {
+    raw: null,
+    draws: null,
+    groups: [],
+    times: [],
+    controlIdx: 0,
+    ci: 0.9,
+    caches: null,
+    source: null
+};
 const explorerMinBase = 10;
 const explorerMinCharPx = 7;
 const explorerMinFloor = 10;
@@ -2210,6 +2329,69 @@ document.addEventListener('DOMContentLoaded', () => {
         const current = localStorage.getItem('plotTheme') || 'system';
         if (current === 'system') applyTheme('system');
     });
+    const longitudinalRawInput = document.getElementById('longitudinalRawInput');
+    const longitudinalPosteriorInput = document.getElementById('longitudinalPosteriorInput');
+    const longitudinalCiSlider = document.getElementById('longitudinalCiSlider');
+    const longitudinalIdCol = document.getElementById('longitudinalIdCol');
+    const longitudinalGroupCol = document.getElementById('longitudinalGroupCol');
+    const longitudinalTimeCol = document.getElementById('longitudinalTimeCol');
+    const longitudinalYCol = document.getElementById('longitudinalYCol');
+
+    if (longitudinalRawInput) {
+        longitudinalRawInput.addEventListener('change', (evt) => {
+            const file = evt.target.files[0];
+            if (!file) return;
+            document.getElementById('plotMode').value = 'longitudinal';
+            setPlotMode();
+            const reader = new FileReader();
+            reader.onload = () => loadLongitudinalRawText(reader.result);
+            reader.readAsText(file);
+        });
+    }
+    if (longitudinalPosteriorInput) {
+        longitudinalPosteriorInput.addEventListener('change', (evt) => {
+            const file = evt.target.files[0];
+            if (!file) return;
+            document.getElementById('plotMode').value = 'longitudinal';
+            setPlotMode();
+            const reader = new FileReader();
+            reader.onload = () => {
+                try {
+                    const data = JSON.parse(reader.result);
+                    loadLongitudinalPosteriorJson(data);
+                } catch (err) {
+                    longitudinalSetStatus('Failed to parse posterior JSON.');
+                }
+            };
+            reader.readAsText(file);
+        });
+    }
+    if (longitudinalCiSlider) {
+        longitudinalCiSlider.addEventListener('input', () => {
+            longitudinalState.ci = parseFloat(longitudinalCiSlider.value);
+            longitudinalUpdateReadout();
+            updateLongitudinalPlots();
+        });
+    }
+    [longitudinalIdCol, longitudinalGroupCol, longitudinalTimeCol, longitudinalYCol].forEach((input) => {
+        if (!input) return;
+        input.addEventListener('change', () => {
+            if (longitudinalState.raw) loadLongitudinalRawText(longitudinalState.raw);
+        });
+    });
+    document.querySelectorAll('[data-longitudinal-export]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            const svgId = btn.dataset.longitudinalExport;
+            const format = btn.dataset.format;
+            const base = svgId === 'longitudinalTimePlot' ? 'time-course' : 'difference-density';
+            if (format === 'svg') {
+                longitudinalDownloadSvg(svgId, `${base}.svg`);
+            } else {
+                longitudinalDownloadPng(svgId, `${base}.png`);
+            }
+        });
+    });
+    longitudinalUpdateReadout();
     const svgContainer = document.getElementById('svg-container');
     let draggingLegend = false;
 
@@ -2365,6 +2547,12 @@ function loadSampleComparison() {
     syncBarControlsUI();
     applyActiveProfile();
     updatePlot();
+}
+
+function loadSampleLongitudinal() {
+    document.getElementById('plotMode').value = 'longitudinal';
+    setPlotMode();
+    loadSampleLongitudinalData();
 }
 
 function ensureGroupOffsets(len) {
@@ -3061,13 +3249,30 @@ function setPlotMode() {
     const groupSection = document.getElementById('groupDataSection');
     const survivalSection = document.getElementById('survivalSection');
     const timeSeriesSection = document.getElementById('timeSeriesSection');
+    const longitudinalSection = document.getElementById('longitudinalSection');
+    const longitudinalArea = document.getElementById('longitudinalArea');
+    const previewRow = document.querySelector('.preview-row');
+    const statsPanels = document.querySelectorAll('.stats-panel');
     const yMaxInputEl = document.getElementById('yMaxInput');
 
-    if (mode === 'survival') {
+    if (mode === 'longitudinal') {
+        if (timeInput) timeInput.disabled = true;
+        if (groupSection) groupSection.style.display = 'none';
+        if (survivalSection) survivalSection.style.display = 'none';
+        if (timeSeriesSection) timeSeriesSection.style.display = 'none';
+        if (longitudinalSection) longitudinalSection.style.display = '';
+        if (previewRow) previewRow.style.display = 'none';
+        if (longitudinalArea) longitudinalArea.style.display = 'flex';
+        statsPanels.forEach(panel => panel.style.display = 'none');
+    } else if (mode === 'survival') {
         if (timeInput) timeInput.disabled = true;
         if (groupSection) groupSection.style.display = 'none';
         if (survivalSection) survivalSection.style.display = '';
         if (timeSeriesSection) timeSeriesSection.style.display = 'none';
+        if (longitudinalSection) longitudinalSection.style.display = 'none';
+        if (previewRow) previewRow.style.display = '';
+        if (longitudinalArea) longitudinalArea.style.display = 'none';
+        statsPanels.forEach(panel => panel.style.display = '');
         const xMaxEl = document.getElementById('survivalXMax');
         if (xMaxEl) xMaxEl.dataset.auto = 'true';
     } else {
@@ -3075,6 +3280,10 @@ function setPlotMode() {
         if (groupSection) groupSection.style.display = '';
         if (survivalSection) survivalSection.style.display = 'none';
         if (timeSeriesSection) timeSeriesSection.style.display = mode === 'time' ? '' : 'none';
+        if (longitudinalSection) longitudinalSection.style.display = 'none';
+        if (previewRow) previewRow.style.display = '';
+        if (longitudinalArea) longitudinalArea.style.display = 'none';
+        statsPanels.forEach(panel => panel.style.display = '');
     }
     const showLegendEl = document.getElementById('showLegend');
     if (showLegendEl && mode === 'comparison') {
@@ -3116,6 +3325,642 @@ function parseSurvivalData(text) {
     }));
     const maxTime = groupConfigs.reduce((max, g) => Math.max(max, ...g.times), 0);
     return { groupConfigs, maxTime };
+}
+
+const longitudinalPalette = ['#0b7285', '#e67700', '#2f9e44', '#d9480f', '#1c7ed6', '#862e9c', '#5f3dc4', '#c92a2a'];
+
+function longitudinalSetStatus(msg) {
+    const el = document.getElementById('longitudinalStatus');
+    if (el) el.textContent = msg;
+}
+
+function longitudinalUpdateReadout() {
+    const readout = document.getElementById('longitudinalCiReadout');
+    if (!readout) return;
+    const pct = Math.round(longitudinalState.ci * 100);
+    readout.textContent = `CI = ${longitudinalState.ci.toFixed(2)} (${pct}%)`;
+}
+
+function longitudinalQuantileFromSorted(sorted, q) {
+    const n = sorted.length;
+    if (!n) return NaN;
+    const pos = (n - 1) * q;
+    const base = Math.floor(pos);
+    const rest = pos - base;
+    if (sorted[base + 1] !== undefined) {
+        return sorted[base] + rest * (sorted[base + 1] - sorted[base]);
+    }
+    return sorted[base];
+}
+
+function longitudinalKdeMode(samples) {
+    const n = samples.length;
+    if (!n) return NaN;
+    let mean = 0;
+    for (let i = 0; i < n; i++) mean += samples[i];
+    mean /= n;
+    let variance = 0;
+    for (let i = 0; i < n; i++) variance += (samples[i] - mean) ** 2;
+    variance /= Math.max(1, n - 1);
+    const std = Math.sqrt(variance) || 1e-6;
+    const bandwidth = 1.06 * std * Math.pow(n, -0.2);
+
+    let min = samples[0];
+    let max = samples[0];
+    for (let i = 1; i < n; i++) {
+        if (samples[i] < min) min = samples[i];
+        if (samples[i] > max) max = samples[i];
+    }
+    const padding = (max - min) * 0.1 + 1e-6;
+    min -= padding;
+    max += padding;
+    const gridCount = 160;
+    let bestX = min;
+    let bestVal = -Infinity;
+    for (let i = 0; i < gridCount; i++) {
+        const x = min + (i / (gridCount - 1)) * (max - min);
+        let sum = 0;
+        for (let j = 0; j < n; j++) {
+            const z = (x - samples[j]) / bandwidth;
+            sum += Math.exp(-0.5 * z * z);
+        }
+        if (sum > bestVal) {
+            bestVal = sum;
+            bestX = x;
+        }
+    }
+    return bestX;
+}
+
+function longitudinalKdeDensity(samples) {
+    const n = samples.length;
+    if (!n) return { x: [], y: [] };
+    let mean = 0;
+    for (let i = 0; i < n; i++) mean += samples[i];
+    mean /= n;
+    let variance = 0;
+    for (let i = 0; i < n; i++) variance += (samples[i] - mean) ** 2;
+    variance /= Math.max(1, n - 1);
+    const std = Math.sqrt(variance) || 1e-6;
+    const bandwidth = 1.06 * std * Math.pow(n, -0.2);
+
+    let min = samples[0];
+    let max = samples[0];
+    for (let i = 1; i < n; i++) {
+        if (samples[i] < min) min = samples[i];
+        if (samples[i] > max) max = samples[i];
+    }
+    const padding = (max - min) * 0.1 + 1e-6;
+    min -= padding;
+    max += padding;
+
+    const gridCount = 140;
+    const xs = new Array(gridCount);
+    const ys = new Array(gridCount);
+    let maxY = 0;
+    for (let i = 0; i < gridCount; i++) {
+        const x = min + (i / (gridCount - 1)) * (max - min);
+        let sum = 0;
+        for (let j = 0; j < n; j++) {
+            const z = (x - samples[j]) / bandwidth;
+            sum += Math.exp(-0.5 * z * z);
+        }
+        xs[i] = x;
+        ys[i] = sum;
+        if (sum > maxY) maxY = sum;
+    }
+    if (maxY > 0) {
+        for (let i = 0; i < ys.length; i++) ys[i] /= maxY;
+    }
+    return { x: xs, y: ys };
+}
+
+function longitudinalClearSvg(svg) {
+    while (svg && svg.firstChild) svg.removeChild(svg.firstChild);
+}
+
+function longitudinalBuildCaches() {
+    const draws = longitudinalState.draws || [];
+    const nDraws = draws.length;
+    const nTimes = longitudinalState.times.length;
+    const nGroups = longitudinalState.groups.length;
+    const A_sorted = Array.from({ length: nTimes }, () => Array(nGroups));
+    const A_mode = Array.from({ length: nTimes }, () => Array(nGroups));
+
+    for (let t = 0; t < nTimes; t++) {
+        for (let g = 0; g < nGroups; g++) {
+            const arr = new Float64Array(nDraws);
+            for (let d = 0; d < nDraws; d++) arr[d] = draws[d][t][g];
+            const sorted = Array.from(arr).sort((a, b) => a - b);
+            A_sorted[t][g] = sorted;
+            A_mode[t][g] = longitudinalKdeMode(arr);
+        }
+    }
+
+    longitudinalState.caches = {
+        A_sorted,
+        A_mode,
+        D_sorted: null,
+        D_mode: null,
+        D_density: {}
+    };
+}
+
+function longitudinalBuildDiffCaches() {
+    const draws = longitudinalState.draws || [];
+    const nDraws = draws.length;
+    const nTimes = longitudinalState.times.length;
+    const nGroups = longitudinalState.groups.length;
+    const controlIdx = longitudinalState.controlIdx;
+    const D_sorted = Array.from({ length: nTimes }, () => Array(nGroups));
+    const D_mode = Array.from({ length: nTimes }, () => Array(nGroups));
+    longitudinalState.caches.D_density = {};
+
+    for (let t = 0; t < nTimes; t++) {
+        for (let g = 0; g < nGroups; g++) {
+            if (g === controlIdx) {
+                D_sorted[t][g] = null;
+                D_mode[t][g] = null;
+                continue;
+            }
+            const arr = new Float64Array(nDraws);
+            for (let d = 0; d < nDraws; d++) {
+                arr[d] = draws[d][t][g] - draws[d][t][controlIdx];
+            }
+            const sorted = Array.from(arr).sort((a, b) => a - b);
+            D_sorted[t][g] = sorted;
+            D_mode[t][g] = longitudinalKdeMode(arr);
+        }
+    }
+    longitudinalState.caches.D_sorted = D_sorted;
+    longitudinalState.caches.D_mode = D_mode;
+}
+
+function longitudinalGetDiffDensity(tIdx, gIdx) {
+    const key = `${tIdx}_${gIdx}_${longitudinalState.controlIdx}`;
+    if (longitudinalState.caches.D_density[key]) return longitudinalState.caches.D_density[key];
+    const samples = longitudinalState.caches.D_sorted[tIdx][gIdx];
+    if (!samples) return { x: [], y: [] };
+    const density = longitudinalKdeDensity(samples);
+    longitudinalState.caches.D_density[key] = density;
+    return density;
+}
+
+function longitudinalRenderTimeCourse() {
+    const svg = document.getElementById('longitudinalTimePlot');
+    longitudinalClearSvg(svg);
+    if (!longitudinalState.draws || longitudinalState.draws.length === 0) return;
+
+    const width = 900;
+    const height = 360;
+    const margin = { top: 20, right: 20, bottom: 40, left: 60 };
+    const innerW = width - margin.left - margin.right;
+    const innerH = height - margin.top - margin.bottom;
+
+    const times = longitudinalState.times;
+    const xMin = Math.min(...times);
+    const xMax = Math.max(...times);
+    const lowerQ = (1 - longitudinalState.ci) / 2;
+    const upperQ = 1 - lowerQ;
+
+    let yMin = Infinity;
+    let yMax = -Infinity;
+    longitudinalState.groups.forEach((_, gIdx) => {
+        for (let t = 0; t < times.length; t++) {
+            const sorted = longitudinalState.caches.A_sorted[t][gIdx];
+            const lo = longitudinalQuantileFromSorted(sorted, lowerQ);
+            const hi = longitudinalQuantileFromSorted(sorted, upperQ);
+            yMin = Math.min(yMin, lo);
+            yMax = Math.max(yMax, hi);
+        }
+    });
+    const yPad = (yMax - yMin) * 0.1 + 1e-6;
+    yMin -= yPad;
+    yMax += yPad;
+
+    const xScale = (x) => margin.left + ((x - xMin) / (xMax - xMin || 1)) * innerW;
+    const yScale = (y) => margin.top + innerH - ((y - yMin) / (yMax - yMin || 1)) * innerH;
+
+    const axis = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    svg.appendChild(axis);
+    axis.innerHTML = `
+        <line x1="${margin.left}" y1="${margin.top}" x2="${margin.left}" y2="${margin.top + innerH}" stroke="#8c7f6c" />
+        <line x1="${margin.left}" y1="${margin.top + innerH}" x2="${margin.left + innerW}" y2="${margin.top + innerH}" stroke="#8c7f6c" />
+    `;
+
+    for (let i = 0; i <= 5; i++) {
+        const yVal = yMin + (i / 5) * (yMax - yMin);
+        const y = yScale(yVal);
+        const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        label.setAttribute('x', margin.left - 8);
+        label.setAttribute('y', y + 4);
+        label.setAttribute('text-anchor', 'end');
+        label.setAttribute('font-size', '10');
+        label.textContent = yVal.toFixed(2);
+        svg.appendChild(label);
+    }
+
+    times.forEach((t) => {
+        const x = xScale(t);
+        const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        label.setAttribute('x', x);
+        label.setAttribute('y', margin.top + innerH + 18);
+        label.setAttribute('text-anchor', 'middle');
+        label.setAttribute('font-size', '10');
+        label.textContent = t;
+        svg.appendChild(label);
+    });
+
+    const legend = document.getElementById('longitudinalTimeLegend');
+    if (legend) legend.innerHTML = '';
+
+    longitudinalState.groups.forEach((name, gIdx) => {
+        const color = longitudinalPalette[gIdx % longitudinalPalette.length];
+        const modePath = [];
+        const upperPath = [];
+        const lowerPath = [];
+        for (let t = 0; t < times.length; t++) {
+            const sorted = longitudinalState.caches.A_sorted[t][gIdx];
+            const mode = longitudinalState.caches.A_mode[t][gIdx];
+            const lo = longitudinalQuantileFromSorted(sorted, lowerQ);
+            const hi = longitudinalQuantileFromSorted(sorted, upperQ);
+            const x = xScale(times[t]);
+            modePath.push(`${x},${yScale(mode)}`);
+            upperPath.push(`${x},${yScale(hi)}`);
+            lowerPath.push(`${x},${yScale(lo)}`);
+        }
+        const band = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        band.setAttribute('d', `M ${upperPath.join(' L ')} L ${lowerPath.reverse().join(' L ')} Z`);
+        band.setAttribute('fill', color);
+        band.setAttribute('opacity', '0.15');
+        svg.appendChild(band);
+
+        const line = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+        line.setAttribute('points', modePath.join(' '));
+        line.setAttribute('fill', 'none');
+        line.setAttribute('stroke', color);
+        line.setAttribute('stroke-width', '2');
+        svg.appendChild(line);
+
+        if (legend) {
+            const legendItem = document.createElement('span');
+            legendItem.innerHTML = `<span style="display:inline-flex; align-items:center; gap:6px;"><i style="display:inline-block; width:12px; height:4px; background:${color}; border-radius:2px;"></i>${name}</span>`;
+            legend.appendChild(legendItem);
+        }
+    });
+}
+
+function longitudinalRenderDifference() {
+    const svg = document.getElementById('longitudinalDiffPlot');
+    longitudinalClearSvg(svg);
+    if (!longitudinalState.draws || longitudinalState.draws.length === 0) return;
+
+    const width = 900;
+    const height = 360;
+    const margin = { top: 20, right: 20, bottom: 40, left: 60 };
+    const innerW = width - margin.left - margin.right;
+    const innerH = height - margin.top - margin.bottom;
+
+    const timeContainer = document.getElementById('longitudinalTimeChecklist');
+    const groupContainer = document.getElementById('longitudinalGroupChecklist');
+    const selectedTimes = Array.from(timeContainer.querySelectorAll('input[type=checkbox]:checked'))
+        .map(el => parseInt(el.dataset.index, 10));
+    const selectedGroups = Array.from(groupContainer.querySelectorAll('input[type=checkbox]:checked'))
+        .map(el => parseInt(el.dataset.index, 10));
+
+    const densities = [];
+    let xMin = Infinity;
+    let xMax = -Infinity;
+
+    selectedTimes.forEach((tIdx) => {
+        selectedGroups.forEach((gIdx) => {
+            if (gIdx === longitudinalState.controlIdx) return;
+            const density = longitudinalGetDiffDensity(tIdx, gIdx);
+            if (!density.x.length) return;
+            densities.push({ tIdx, gIdx, density });
+            xMin = Math.min(xMin, density.x[0]);
+            xMax = Math.max(xMax, density.x[density.x.length - 1]);
+        });
+    });
+    if (!isFinite(xMin) || !isFinite(xMax)) return;
+    const xPad = (xMax - xMin) * 0.1 + 1e-6;
+    xMin -= xPad;
+    xMax += xPad;
+
+    const xScale = (x) => margin.left + ((x - xMin) / (xMax - xMin || 1)) * innerW;
+    const yScale = (y) => margin.top + innerH - y * innerH;
+
+    const axis = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    svg.appendChild(axis);
+    axis.innerHTML = `
+        <line x1="${margin.left}" y1="${margin.top}" x2="${margin.left}" y2="${margin.top + innerH}" stroke="#8c7f6c" />
+        <line x1="${margin.left}" y1="${margin.top + innerH}" x2="${margin.left + innerW}" y2="${margin.top + innerH}" stroke="#8c7f6c" />
+    `;
+
+    for (let i = 0; i <= 5; i++) {
+        const xVal = xMin + (i / 5) * (xMax - xMin);
+        const x = xScale(xVal);
+        const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        label.setAttribute('x', x);
+        label.setAttribute('y', margin.top + innerH + 18);
+        label.setAttribute('text-anchor', 'middle');
+        label.setAttribute('font-size', '10');
+        label.textContent = xVal.toFixed(2);
+        svg.appendChild(label);
+    }
+
+    const legend = document.getElementById('longitudinalDiffLegend');
+    if (legend) legend.innerHTML = '';
+
+    const lowerQ = (1 - longitudinalState.ci) / 2;
+    const upperQ = 1 - lowerQ;
+
+    densities.forEach((item, idx) => {
+        const color = longitudinalPalette[idx % longitudinalPalette.length];
+        const { tIdx, gIdx, density } = item;
+        const points = density.x.map((x, i) => `${xScale(x)},${yScale(density.y[i])}`).join(' ');
+        const polyline = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+        polyline.setAttribute('points', points);
+        polyline.setAttribute('fill', 'none');
+        polyline.setAttribute('stroke', color);
+        polyline.setAttribute('stroke-width', '2');
+        svg.appendChild(polyline);
+
+        const sorted = longitudinalState.caches.D_sorted[tIdx][gIdx];
+        const mode = longitudinalState.caches.D_mode[tIdx][gIdx];
+        const lo = longitudinalQuantileFromSorted(sorted, lowerQ);
+        const hi = longitudinalQuantileFromSorted(sorted, upperQ);
+
+        const modeLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        modeLine.setAttribute('x1', xScale(mode));
+        modeLine.setAttribute('x2', xScale(mode));
+        modeLine.setAttribute('y1', margin.top);
+        modeLine.setAttribute('y2', margin.top + innerH);
+        modeLine.setAttribute('stroke', color);
+        modeLine.setAttribute('stroke-dasharray', '4,4');
+        svg.appendChild(modeLine);
+
+        [lo, hi].forEach((val) => {
+            const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            line.setAttribute('x1', xScale(val));
+            line.setAttribute('x2', xScale(val));
+            line.setAttribute('y1', margin.top);
+            line.setAttribute('y2', margin.top + innerH);
+            line.setAttribute('stroke', color);
+            line.setAttribute('stroke-width', '2');
+            svg.appendChild(line);
+        });
+
+        if (legend) {
+            const legendItem = document.createElement('span');
+            legendItem.innerHTML = `<span style="display:inline-flex; align-items:center; gap:6px;"><i style="display:inline-block; width:12px; height:4px; background:${color}; border-radius:2px;"></i>${longitudinalState.groups[gIdx]} @ t=${longitudinalState.times[tIdx]}</span>`;
+            legend.appendChild(legendItem);
+        }
+    });
+}
+
+function updateLongitudinalPlots() {
+    longitudinalRenderTimeCourse();
+    longitudinalRenderDifference();
+}
+
+function longitudinalBuildChecklist(container, items, indexValues) {
+    container.innerHTML = '';
+    items.forEach((label, idx) => {
+        const box = document.createElement('input');
+        box.type = 'checkbox';
+        box.checked = true;
+        box.dataset.index = indexValues[idx];
+        const wrapper = document.createElement('label');
+        wrapper.style.fontWeight = 'normal';
+        wrapper.appendChild(box);
+        wrapper.appendChild(document.createTextNode(` ${label}`));
+        container.appendChild(wrapper);
+    });
+}
+
+function longitudinalSetupControls() {
+    const controlSelect = document.getElementById('longitudinalControlSelect');
+    const timeList = document.getElementById('longitudinalTimeChecklist');
+    const groupList = document.getElementById('longitudinalGroupChecklist');
+    if (!controlSelect || !timeList || !groupList) return;
+
+    controlSelect.innerHTML = '';
+    longitudinalState.groups.forEach((g, idx) => {
+        const option = document.createElement('option');
+        option.value = idx;
+        option.textContent = g;
+        controlSelect.appendChild(option);
+    });
+    controlSelect.value = longitudinalState.controlIdx;
+
+    longitudinalBuildChecklist(timeList, longitudinalState.times.map(String), longitudinalState.times.map((_, i) => i));
+    const groupLabels = [];
+    const groupIndexes = [];
+    longitudinalState.groups.forEach((g, idx) => {
+        if (idx === longitudinalState.controlIdx) return;
+        groupLabels.push(g);
+        groupIndexes.push(idx);
+    });
+    longitudinalBuildChecklist(groupList, groupLabels, groupIndexes);
+
+    controlSelect.onchange = () => {
+        longitudinalState.controlIdx = parseInt(controlSelect.value, 10);
+        longitudinalSetupControls();
+        longitudinalBuildDiffCaches();
+        updateLongitudinalPlots();
+    };
+    timeList.onchange = updateLongitudinalPlots;
+    groupList.onchange = updateLongitudinalPlots;
+}
+
+function longitudinalSetData(draws, groups, times, sourceLabel) {
+    longitudinalState.draws = draws;
+    longitudinalState.groups = groups;
+    longitudinalState.times = times.map(t => parseInt(t, 10));
+    longitudinalState.controlIdx = 0;
+    longitudinalState.source = sourceLabel;
+    longitudinalBuildCaches();
+    longitudinalBuildDiffCaches();
+    longitudinalSetupControls();
+    longitudinalUpdateReadout();
+    longitudinalSetStatus(`Loaded ${draws.length} draws (${sourceLabel}).`);
+    updateLongitudinalPlots();
+}
+
+function longitudinalParseCsv(text) {
+    const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    if (!lines.length) return [];
+    const header = lines[0].split(/,|\t/).map(h => h.trim());
+    const rows = [];
+    for (let i = 1; i < lines.length; i++) {
+        const parts = lines[i].split(/,|\t/);
+        if (parts.length < header.length) continue;
+        const row = {};
+        header.forEach((h, idx) => row[h] = (parts[idx] || '').trim());
+        rows.push(row);
+    }
+    return rows;
+}
+
+function longitudinalBuildEmpiricalDraws(rows, idCol, groupCol, timeCol, yCol) {
+    const groups = Array.from(new Set(rows.map(r => r[groupCol]))).filter(Boolean);
+    const times = Array.from(new Set(rows.map(r => parseInt(r[timeCol], 10)))).filter(n => Number.isFinite(n)).sort((a, b) => a - b);
+    const byGroupTime = new Map();
+    const byGroup = new Map();
+    rows.forEach((row) => {
+        const g = row[groupCol];
+        const t = parseInt(row[timeCol], 10);
+        const y = parseFloat(row[yCol]);
+        if (!g || !Number.isFinite(t) || !Number.isFinite(y)) return;
+        if (y <= 0) throw new Error('y must be positive for LogNormal.');
+        const logy = Math.log(y);
+        const key = `${g}::${t}`;
+        if (!byGroupTime.has(key)) byGroupTime.set(key, []);
+        byGroupTime.get(key).push(logy);
+        if (!byGroup.has(g)) byGroup.set(g, []);
+        byGroup.get(g).push(logy);
+    });
+    const global = rows.map(r => Math.log(parseFloat(r[yCol]))).filter(v => Number.isFinite(v));
+
+    const nDraws = 400;
+    const draws = [];
+    function randn() {
+        let u = 0, v = 0;
+        while (u === 0) u = Math.random();
+        while (v === 0) v = Math.random();
+        return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+    }
+    for (let d = 0; d < nDraws; d++) {
+        const draw = [];
+        times.forEach((t) => {
+            const row = [];
+            groups.forEach((g) => {
+                const key = `${g}::${t}`;
+                let arr = byGroupTime.get(key);
+                if (!arr || arr.length === 0) arr = byGroup.get(g);
+                if (!arr || arr.length === 0) arr = global;
+                if (!arr || arr.length === 0) arr = [0];
+                const mean = arr.reduce((a, b) => a + b, 0) / arr.length;
+                const varSum = arr.reduce((a, b) => a + (b - mean) ** 2, 0);
+                const std = Math.sqrt(varSum / Math.max(1, arr.length - 1)) || 0.1;
+                const sample = Math.exp(mean + std * randn());
+                row.push(sample);
+            });
+            draw.push(row);
+        });
+        draws.push(draw);
+    }
+    return { draws, groups, times };
+}
+
+function loadLongitudinalRawText(text) {
+    const idCol = document.getElementById('longitudinalIdCol').value.trim() || 'id';
+    const groupCol = document.getElementById('longitudinalGroupCol').value.trim() || 'group';
+    const timeCol = document.getElementById('longitudinalTimeCol').value.trim() || 'time';
+    const yCol = document.getElementById('longitudinalYCol').value.trim() || 'y';
+    longitudinalState.raw = text;
+    const rows = longitudinalParseCsv(text);
+    if (!rows.length) {
+        longitudinalSetStatus('No rows found in CSV.');
+        return;
+    }
+    if (!rows[0].hasOwnProperty(groupCol) || !rows[0].hasOwnProperty(timeCol) || !rows[0].hasOwnProperty(yCol)) {
+        longitudinalSetStatus('Missing required columns in CSV.');
+        return;
+    }
+    try {
+        const result = longitudinalBuildEmpiricalDraws(rows, idCol, groupCol, timeCol, yCol);
+        longitudinalSetData(result.draws, result.groups, result.times, 'empirical preview');
+        longitudinalSetStatus('Raw data loaded. For full Bayesian model, run fit_model.py to generate posterior draws.');
+    } catch (err) {
+        longitudinalSetStatus(err.message);
+    }
+}
+
+function loadLongitudinalPosteriorJson(data) {
+    if (!data || !data.draws || !data.groups || !data.times) {
+        longitudinalSetStatus('Invalid JSON. Required keys: draws, groups, times.');
+        return;
+    }
+    longitudinalSetData(data.draws, data.groups, data.times, 'posterior');
+}
+
+function loadSampleLongitudinalData() {
+    const sample = (() => {
+        const groups = ['control', 'treatA', 'treatB'];
+        const times = [0, 1, 2, 3];
+        const draws = [];
+        let seed = 1234;
+        const rng = () => {
+            seed = (seed * 1664525 + 1013904223) % 4294967296;
+            return seed / 4294967296;
+        };
+        for (let d = 0; d < 250; d++) {
+            const draw = [];
+            const base = 1.0 + rng() * 0.2;
+            times.forEach((t) => {
+                const row = [];
+                groups.forEach((g) => {
+                    const drift = g === 'treatA' ? 0.18 : (g === 'treatB' ? 0.08 : 0.12);
+                    const val = base * (1 + drift * t) * (0.9 + rng() * 0.2);
+                    row.push(val);
+                });
+                draw.push(row);
+            });
+            draws.push(draw);
+        }
+        return { draws, groups, times };
+    })();
+    longitudinalSetData(sample.draws, sample.groups, sample.times, 'example');
+}
+
+function longitudinalDownloadSvg(svgId, filename) {
+    const svg = document.getElementById(svgId);
+    if (!svg) return;
+    const serializer = new XMLSerializer();
+    const source = serializer.serializeToString(svg);
+    const blob = new Blob([source], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+}
+
+function longitudinalDownloadPng(svgId, filename) {
+    const svg = document.getElementById(svgId);
+    if (!svg) return;
+    const serializer = new XMLSerializer();
+    const source = serializer.serializeToString(svg);
+    const svgBlob = new Blob([source], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(svgBlob);
+    const img = new Image();
+    img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = 900;
+        canvas.height = 360;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0);
+        URL.revokeObjectURL(url);
+        canvas.toBlob((blob) => {
+            if (!blob) return;
+            const pngUrl = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = pngUrl;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(pngUrl);
+        }, 'image/png');
+    };
+    img.src = url;
 }
 
 function computeSurvivalCurve(times) {
@@ -3291,6 +4136,10 @@ function updateExplorerTitleDisplay() {
 
 function updatePlot(reflowPass = 0) {
     const mode = document.getElementById('plotMode').value;
+    if (mode === 'longitudinal') {
+        updateLongitudinalPlots();
+        return;
+    }
     const survivalMode = mode === 'survival';
     const isCompMode = mode === 'comparison';
     let timeLabels = isCompMode ? ["Data"] : document.getElementById('timePointsInput').value.trim().split(/[\t\s]+/).filter(s => s !== "");
