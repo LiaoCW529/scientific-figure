@@ -809,6 +809,17 @@
             opacity: 0.6;
             cursor: grabbing;
         }
+        .time-label-bulk {
+            width: 100%;
+            min-height: 60px;
+            font-family: "SF Mono", monospace;
+            font-size: 11px;
+            border-radius: 6px;
+            border: 1px solid var(--input-border);
+            background: var(--input-bg);
+            color: var(--input-text);
+            padding: 6px;
+        }
         .time-label-item input {
             width: 90px;
             font-size: 0.8rem;
@@ -989,6 +1000,11 @@
             <div id="timeLabelList" class="time-label-list"></div>
             <button type="button" class="btn-mini" id="addTimeLabelBtn" style="width:auto; margin-top:6px;">+ Time</button>
             <input type="text" id="timePointsInput" class="text-input" value="Day1 Day3 Day7" style="display:none;">
+            <div style="margin-top:8px;">
+                <label style="font-size:0.75rem; color: var(--muted);">Bulk edit (space/tab/newline separated)</label>
+                <textarea id="timeLabelsBulk" class="time-label-bulk" placeholder="Day1 Day3 Day7"></textarea>
+                <button type="button" class="btn-mini" style="width:auto; margin-top:6px;" onclick="applyTimeLabelsBulk()">Apply</button>
+            </div>
         </div>
         <div class="master-label-card" id="longitudinalSection" style="display:none;">
             <label style="margin-bottom:6px;">Longitudinal State-Space Inputs</label>
@@ -1487,6 +1503,7 @@ function addNewGroup(name = "", color = "", data = "") {
         <div class="group-header">
             <input type="text" class="group-name-input" value="${nameVal}" style="width:100px" oninput="updatePlot()">
             <input type="color" class="group-color-input" value="${colorVal}" oninput="updatePlot()">
+            <button type="button" class="btn-mini" style="width:auto;" onclick="toggleGroupBulkEdit('${id}')">Bulk Edit</button>
         </div>
         <div class="group-time-grid" style="display:none;"></div>
         <textarea class="group-data-input" placeholder="Paste data here..." oninput="handlePaste('${id}')">${data}</textarea>
@@ -2013,6 +2030,9 @@ function renderStagedGroups() {
                 <label style="font-size:0.75rem; color:var(--explorer-muted);">Time Labels</label>
                 <div class="time-label-list" id="stagedTimeLabelList">${timeItems}</div>
                 <button type="button" class="btn-mini" style="width:auto; margin-top:6px;" onclick="addStagedTimeLabel()">+ Time</button>
+                <label style="font-size:0.75rem; color:var(--explorer-muted); margin-top:6px; display:block;">Bulk edit (space/tab/newline separated)</label>
+                <textarea class="time-label-bulk" id="stagedTimeLabelsBulk">${stagedTimeLabels.join(' ')}</textarea>
+                <button type="button" class="btn-mini" style="width:auto; margin-top:6px;" onclick="applyStagedTimeLabelsBulk()">Apply</button>
             </div>
         `;
     }
@@ -2064,7 +2084,7 @@ function updateStagedName(idx, value) {
     stagedGroupNames[idx] = value;
 }
 function updateStagedTimeLabels(value) {
-    stagedTimeLabels = value.trim().split(/[\t\s]+/).filter(Boolean);
+    stagedTimeLabels = parseTimeLabelText(value);
     renderExplorerTimeSelect();
 }
 
@@ -2090,6 +2110,16 @@ function addStagedTimeLabel() {
 
 function removeStagedTimeLabel(idx) {
     stagedTimeLabels.splice(idx, 1);
+    renderStagedGroups();
+    renderExplorerTimeSelect();
+}
+
+function applyStagedTimeLabelsBulk() {
+    const bulk = document.getElementById('stagedTimeLabelsBulk');
+    if (!bulk) return;
+    const labels = parseTimeLabelText(bulk.value);
+    if (!labels.length) return;
+    stagedTimeLabels = labels;
     renderStagedGroups();
     renderExplorerTimeSelect();
 }
@@ -2801,6 +2831,7 @@ document.addEventListener('DOMContentLoaded', () => {
         syncTimePointsInput();
         renderTimeLabelInputs();
         renderExplorerTimeSelect();
+        updateTimeLabelsBulk();
     }
     const addTimeLabelBtn = document.getElementById('addTimeLabelBtn');
     if (addTimeLabelBtn) {
@@ -3712,6 +3743,9 @@ function handlePaste(id) {
         textarea.value = lines.slice(1).join('\n');
     }
     renderGroupTable(card);
+    if (document.getElementById('plotMode')?.value === 'time') {
+        renderGroupTimeGrid(card);
+    }
     updatePlot();
 }
 
@@ -3751,6 +3785,10 @@ function parseData(text, expectedCount) {
 
 let timeLabelState = [];
 
+function parseTimeLabelText(text) {
+    return String(text || '').trim().split(/[\t,\n\r\s]+/).filter(Boolean);
+}
+
 function getTimeLabels() {
     if (timeLabelState.length) {
         return timeLabelState.filter(l => l !== '');
@@ -3763,6 +3801,11 @@ function getTimeLabels() {
 function syncTimePointsInput() {
     const input = document.getElementById('timePointsInput');
     if (input) input.value = timeLabelState.join(' ');
+}
+
+function updateTimeLabelsBulk() {
+    const bulk = document.getElementById('timeLabelsBulk');
+    if (bulk) bulk.value = timeLabelState.join(' ');
 }
 
 function renderTimeLabelInputs() {
@@ -3801,6 +3844,7 @@ function renderTimeLabelInputs() {
         list.appendChild(item);
     });
     bindTimeLabelDrag(list);
+    updateTimeLabelsBulk();
 }
 
 function setTimeLabels(labels) {
@@ -3821,6 +3865,14 @@ function addTimeLabel(label = '') {
     refreshAllGroupTimeGrids();
     updatePlot();
     renderExplorerTimeSelect();
+}
+
+function applyTimeLabelsBulk() {
+    const bulk = document.getElementById('timeLabelsBulk');
+    if (!bulk) return;
+    const labels = parseTimeLabelText(bulk.value);
+    if (!labels.length) return;
+    setTimeLabels(labels);
 }
 
 function buildMatrixFromColumns(columns) {
@@ -3949,6 +4001,14 @@ function renderGroupTimeGrid(card) {
         if (preview) preview.style.display = '';
         return;
     }
+    const bulkOpen = card.dataset.bulkOpen === 'true';
+    if (bulkOpen) {
+        grid.style.display = 'none';
+        textarea.style.display = '';
+        if (preview) preview.style.display = '';
+        renderGroupTable(card);
+        return;
+    }
     grid.style.display = '';
     textarea.style.display = 'none';
     if (preview) preview.style.display = 'none';
@@ -3990,6 +4050,30 @@ function refreshAllGroupTimeGrids() {
     document.querySelectorAll('.group-card').forEach((card) => {
         renderGroupTimeGrid(card);
     });
+}
+
+function toggleGroupBulkEdit(id) {
+    const card = document.getElementById(id);
+    if (!card) return;
+    const mode = document.getElementById('plotMode')?.value || 'comparison';
+    if (mode !== 'time') return;
+    const grid = card.querySelector('.group-time-grid');
+    const textarea = card.querySelector('.group-data-input');
+    const preview = card.querySelector('.paste-preview');
+    if (!grid || !textarea) return;
+    const open = card.dataset.bulkOpen === 'true';
+    if (open) {
+        card.dataset.bulkOpen = 'false';
+        textarea.style.display = 'none';
+        if (preview) preview.style.display = 'none';
+        renderGroupTimeGrid(card);
+    } else {
+        card.dataset.bulkOpen = 'true';
+        grid.style.display = 'none';
+        textarea.style.display = '';
+        if (preview) preview.style.display = '';
+        renderGroupTable(card);
+    }
 }
 
 function bindGroupTimeDrag(grid) {
