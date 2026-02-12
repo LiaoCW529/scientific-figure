@@ -638,6 +638,15 @@
             color: var(--explorer-input-text);
             font-size: 0.75rem;
         }
+        .explorer-menu select {
+            width: 100%;
+            padding: 4px 6px;
+            border-radius: 4px;
+            border: 1px solid var(--explorer-border);
+            background: var(--explorer-input-bg);
+            color: var(--explorer-input-text);
+            font-size: 0.75rem;
+        }
         .explorer-send {
             display: grid;
             grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -781,6 +790,57 @@
             font-size: 0.8rem;
             color: var(--muted);
         }
+        .time-label-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+        .time-label-item {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 4px 6px;
+        }
+        .time-label-item input {
+            width: 90px;
+            font-size: 0.8rem;
+        }
+        .time-label-remove {
+            border: none;
+            background: var(--danger);
+            color: #fff;
+            border-radius: 4px;
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+            font-size: 10px;
+            line-height: 1;
+        }
+        .group-time-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 8px;
+            margin-top: 8px;
+        }
+        .group-time-col label {
+            font-size: 0.75rem;
+            color: var(--muted);
+            display: block;
+            margin-bottom: 4px;
+        }
+        .group-time-col textarea {
+            width: 100%;
+            height: 70px;
+            font-family: "SF Mono", monospace;
+            font-size: 11px;
+            border-radius: 4px;
+            border: 1px solid var(--input-border);
+            background: var(--input-bg);
+            color: var(--input-text);
+        }
         .option-list label,
         .legend-row label,
         .control-item label {
@@ -883,6 +943,10 @@
         <button type="button" style="width:auto; padding:4px 8px;" onclick="stageExplorerTimeLabels(true)">Set Time Labels</button>
         <button type="button" style="width:auto; padding:4px 8px;" onclick="stageExplorerTimeLabels(false)">Append Time Labels</button>
     </div>
+    <div class="explorer-menu-row" id="explorerTimeTargetRow">
+        <span style="font-size:0.7rem; color: var(--muted);">Time</span>
+        <select id="explorerTimeIndexMenu"></select>
+    </div>
     <button type="button" onclick="sendExplorerToTitle()">Send to Title</button>
 </div>
 
@@ -916,8 +980,10 @@
             </div>
         </div>
         <div class="master-label-card" id="timeSeriesSection">
-            <label>Shared X-Labels (Space separated)</label>
-            <input type="text" id="timePointsInput" class="text-input" value="Day1 Day3 Day7" oninput="updatePlot()">
+            <label>Shared Time Labels</label>
+            <div id="timeLabelList" class="time-label-list"></div>
+            <button type="button" class="btn-mini" id="addTimeLabelBtn" style="width:auto; margin-top:6px;">+ Time</button>
+            <input type="text" id="timePointsInput" class="text-input" value="Day1 Day3 Day7" style="display:none;">
         </div>
         <div class="master-label-card" id="longitudinalSection" style="display:none;">
             <label style="margin-bottom:6px;">Longitudinal State-Space Inputs</label>
@@ -1417,10 +1483,14 @@ function addNewGroup(name = "", color = "", data = "") {
             <input type="text" class="group-name-input" value="${nameVal}" style="width:100px" oninput="updatePlot()">
             <input type="color" class="group-color-input" value="${colorVal}" oninput="updatePlot()">
         </div>
+        <div class="group-time-grid" style="display:none;"></div>
         <textarea class="group-data-input" placeholder="Paste data here..." oninput="handlePaste('${id}')">${data}</textarea>
         <div class="paste-preview"></div>
     `;
     container.appendChild(card);
+    if (getExplorerMode() === 'time') {
+        renderGroupTimeGrid(card);
+    }
     updatePlot();
 }
 
@@ -1927,11 +1997,17 @@ function renderStagedGroups() {
     let html = '';
     const mode = getExplorerMode();
     if (mode === 'time') {
-        const labelText = stagedTimeLabels.join(' ');
+        const timeItems = stagedTimeLabels.map((label, idx) => `
+            <div class="time-label-item">
+                <input type="text" value="${label}" oninput="updateStagedTimeLabel(${idx}, this.value)">
+                <button type="button" class="time-label-remove" onclick="removeStagedTimeLabel(${idx})">×</button>
+            </div>
+        `).join('');
         html += `
             <div class="staged-item" style="flex:1 1 100%;">
-                <label style="font-size:0.75rem; color:var(--explorer-muted);">Time Labels (space separated)</label>
-                <input type="text" data-staged-time="true" value="${labelText}" style="width:100%; font-size:0.85rem; padding:4px 6px; border-radius:4px; border:1px solid var(--explorer-border); background:var(--explorer-card); color:var(--explorer-text);" oninput="updateStagedTimeLabels(this.value)">
+                <label style="font-size:0.75rem; color:var(--explorer-muted);">Time Labels</label>
+                <div class="time-label-list">${timeItems}</div>
+                <button type="button" class="btn-mini" style="width:auto; margin-top:6px;" onclick="addStagedTimeLabel()">+ Time</button>
             </div>
         `;
     }
@@ -1947,6 +2023,7 @@ function renderStagedGroups() {
         `;
     }
     area.innerHTML = html;
+    renderExplorerTimeSelect();
 }
 
 function updateStagedFromTextarea(idx, value) {
@@ -1957,6 +2034,26 @@ function updateStagedName(idx, value) {
 }
 function updateStagedTimeLabels(value) {
     stagedTimeLabels = value.trim().split(/[\t\s]+/).filter(Boolean);
+    renderExplorerTimeSelect();
+}
+
+function updateStagedTimeLabel(idx, value) {
+    stagedTimeLabels[idx] = String(value || '').trim();
+    stagedTimeLabels = stagedTimeLabels.filter(l => l !== '');
+    renderStagedGroups();
+    renderExplorerTimeSelect();
+}
+
+function addStagedTimeLabel() {
+    stagedTimeLabels.push(`Time${stagedTimeLabels.length + 1}`);
+    renderStagedGroups();
+    renderExplorerTimeSelect();
+}
+
+function removeStagedTimeLabel(idx) {
+    stagedTimeLabels.splice(idx, 1);
+    renderStagedGroups();
+    renderExplorerTimeSelect();
 }
 
 function collectStagedGroupsFromUI() {
@@ -1978,9 +2075,9 @@ function collectStagedGroupsFromUI() {
             stagedGroupNames[idx] = inp.value;
         }
     });
-    const timeInput = area.querySelector('input[data-staged-time]');
-    if (timeInput) {
-        updateStagedTimeLabels(timeInput.value);
+    const timeInputs = area.querySelectorAll('.time-label-item input');
+    if (timeInputs.length) {
+        stagedTimeLabels = Array.from(timeInputs).map(inp => inp.value.trim()).filter(Boolean);
     }
 }
 
@@ -2316,6 +2413,31 @@ function getExplorerMode() {
     return (explorerMode && explorerMode.value) || (plotMode && plotMode.value) || 'comparison';
 }
 
+function getAvailableTimeLabels() {
+    if (stagedTimeLabels && stagedTimeLabels.length) return stagedTimeLabels;
+    return getTimeLabels();
+}
+
+function renderExplorerTimeSelect() {
+    const select = document.getElementById('explorerTimeIndexMenu');
+    if (!select) return;
+    const labels = getAvailableTimeLabels();
+    select.innerHTML = '';
+    if (!labels.length) {
+        const opt = document.createElement('option');
+        opt.value = '0';
+        opt.textContent = 'Time1';
+        select.appendChild(opt);
+        return;
+    }
+    labels.forEach((label, idx) => {
+        const opt = document.createElement('option');
+        opt.value = String(idx);
+        opt.textContent = label || `Time${idx + 1}`;
+        select.appendChild(opt);
+    });
+}
+
 function renderExplorerMenuGroups() {
     const container = document.getElementById('explorerGroupButtons');
     if (!container) return;
@@ -2383,6 +2505,7 @@ function stageExplorerTimeLabels(replace = true) {
         });
     }
     renderStagedGroups();
+    renderExplorerTimeSelect();
     hideExplorerMenu();
 }
 
@@ -2407,6 +2530,20 @@ function mergeTimeGroupData(existingText, matrix) {
     return merged.filter(line => line.trim() !== '').join('\n');
 }
 
+function setTimeColumnsInGroupText(existingText, startIndex, values, timeCount) {
+    const rows = (existingText || '').trim() === '' ? [] : (existingText || '').split('\n').map(line => line.split('\t'));
+    const rowCount = Math.max(rows.length, values.length);
+    for (let r = 0; r < rowCount; r++) {
+        if (!rows[r]) rows[r] = Array(timeCount).fill('');
+        while (rows[r].length < timeCount) rows[r].push('');
+        const val = values[r];
+        if (val !== undefined && val !== null && val !== '') {
+            rows[r][startIndex] = val;
+        }
+    }
+    return rows.map(row => row.join('\t').trimEnd()).filter(line => line.trim() !== '').join('\n');
+}
+
 function showExplorerMenu(x, y) {
     const menu = document.getElementById('explorerMenu');
     if (!menu) return;
@@ -2414,6 +2551,13 @@ function showExplorerMenu(x, y) {
     const timeActions = document.getElementById('explorerTimeActions');
     if (timeActions) {
         timeActions.style.display = getExplorerMode() === 'time' ? 'flex' : 'none';
+    }
+    const timeTarget = document.getElementById('explorerTimeTargetRow');
+    if (timeTarget) {
+        timeTarget.style.display = getExplorerMode() === 'time' ? 'flex' : 'none';
+    }
+    if (getExplorerMode() === 'time') {
+        renderExplorerTimeSelect();
     }
     menu.style.left = `${x + 10}px`;
     menu.style.top = `${y + 10}px`;
@@ -2435,9 +2579,30 @@ function sendExplorerToGroup(groupNumber) {
     }
     const mode = getExplorerMode();
     if (mode === 'time') {
-        const matrix = getExplorerSelectionMatrix();
-        const existing = stagedGroups[targetGroup] || '';
-        stagedGroups[targetGroup] = mergeTimeGroupData(existing, matrix);
+        const matrixRaw = getExplorerSelectionMatrix();
+        if (!matrixRaw.length) return;
+        const matrix = matrixRaw.map(row => row.map((cell) => {
+            const num = parseFloat(cell);
+            if (cell === '' || cell === null || cell === undefined) return '';
+            return Number.isFinite(num) ? num : '';
+        }));
+        const timeLabels = getAvailableTimeLabels();
+        const timeSelect = document.getElementById('explorerTimeIndexMenu');
+        let startIdx = timeSelect ? parseInt(timeSelect.value, 10) : 0;
+        if (isNaN(startIdx) || startIdx < 0) startIdx = 0;
+        const colCount = matrix[0] ? matrix[0].length : 1;
+        const requiredCount = Math.max(timeLabels.length, startIdx + colCount);
+        if (stagedTimeLabels.length < requiredCount) {
+            for (let i = stagedTimeLabels.length; i < requiredCount; i++) {
+                stagedTimeLabels.push(`Time${i + 1}`);
+            }
+        }
+        let currentText = stagedGroups[targetGroup] || '';
+        for (let c = 0; c < colCount; c++) {
+            const colValues = matrix.map(row => row[c]).filter(v => v !== '' && v !== null && v !== undefined);
+            currentText = setTimeColumnsInGroupText(currentText, startIdx + c, colValues, requiredCount);
+        }
+        stagedGroups[targetGroup] = currentText;
     } else {
         const rows = [];
         for (let r = explorerSelection.r1; r <= explorerSelection.r2; r++) {
@@ -2452,6 +2617,7 @@ function sendExplorerToGroup(groupNumber) {
         stagedGroups[targetGroup] = rows.join('\n');
     }
     renderStagedGroups();
+    renderExplorerTimeSelect();
     renderExplorerTree(explorerFiles);
     hideExplorerMenu();
 }
@@ -2504,8 +2670,7 @@ function applyStagedGroups() {
     }
 
     if (mode === 'time' && stagedTimeLabels.length) {
-        const timeInput = document.getElementById('timePointsInput');
-        if (timeInput) timeInput.value = stagedTimeLabels.join(' ');
+        setTimeLabels(stagedTimeLabels);
     }
 
     // B. Ensure group IDs are contiguous
@@ -2535,6 +2700,9 @@ function applyStagedGroups() {
             }
 
             handlePaste(target.id);
+            if (mode === 'time') {
+                renderGroupTimeGrid(target);
+            }
         }
     });
 
@@ -2570,6 +2738,9 @@ function clearGroupDataInputs(skipUpdate = false) {
     cards.forEach((card) => {
         const textarea = card.querySelector('.group-data-input');
         if (textarea) textarea.value = '';
+        card.querySelectorAll('.group-time-col textarea').forEach((ta) => {
+            ta.value = '';
+        });
         const preview = card.querySelector('.paste-preview');
         if (preview) preview.innerHTML = '';
     });
@@ -2581,6 +2752,22 @@ document.addEventListener('DOMContentLoaded', () => {
         setPlotMode();
     }
     updateExplorerTitleDisplay();
+    const timeInput = document.getElementById('timePointsInput');
+    if (timeInput) {
+        const initial = timeInput.value.trim().split(/[\t\s]+/).filter(Boolean);
+        if (initial.length) {
+            timeLabelState = initial;
+        } else {
+            timeLabelState = ['Day1', 'Day3', 'Day7'];
+        }
+        syncTimePointsInput();
+        renderTimeLabelInputs();
+        renderExplorerTimeSelect();
+    }
+    const addTimeLabelBtn = document.getElementById('addTimeLabelBtn');
+    if (addTimeLabelBtn) {
+        addTimeLabelBtn.addEventListener('click', () => addTimeLabel());
+    }
     const themeSelect = document.getElementById('themeSelect');
     const systemMedia = window.matchMedia('(prefers-color-scheme: dark)');
     const applyTheme = (mode) => {
@@ -3071,7 +3258,7 @@ function resetGroups() {
 function loadSampleTimeline() {
     document.getElementById('plotMode').value = 'time';
     setPlotMode();
-    document.getElementById('timePointsInput').value = 'Day1 Day3 Day7 Day10';
+    setTimeLabels(['Day1', 'Day3', 'Day7', 'Day10']);
     resetGroups();
     addNewGroup("WT", "#ffffff", "Day1\tDay3\tDay7\tDay10\n100\t250\t400\t520\n120\t280\t450\t560\n90\t230\t380\t500");
     addNewGroup("KO", "#ffcccc", "Day1\tDay3\tDay7\tDay10\n80\t150\t200\t240\n70\t140\t220\t260\n85\t160\t190\t230");
@@ -3082,7 +3269,7 @@ function loadSampleTimeline() {
 function loadSampleComparison() {
     document.getElementById('plotMode').value = 'comparison';
     setPlotMode();
-    document.getElementById('timePointsInput').value = 'Data';
+    setTimeLabels(['Data']);
     resetGroups();
     addNewGroup("Control", "#ffffff", "12.1\n11.5\n10.9\n12.8\n11.7");
     addNewGroup("Treatment", "#ffcccc", "15.2\n14.6\n16.1\n15.8\n14.9");
@@ -3211,7 +3398,7 @@ function collectProfile() {
     return {
         version: 1,
         mode,
-        timeLabels: document.getElementById('timePointsInput').value,
+        timeLabels: getTimeLabels().join(' '),
         survival: {
             xMax: document.getElementById('survivalXMax').value,
             yPercent: document.getElementById('survivalYAxisPercent').checked
@@ -3269,7 +3456,8 @@ function applyActiveProfile() {
 function applyProfile(profile) {
     if (!profile || typeof profile !== 'object') return;
     if (profile.timeLabels !== undefined) {
-        document.getElementById('timePointsInput').value = profile.timeLabels;
+        const labels = String(profile.timeLabels || '').trim().split(/[\t\s]+/).filter(Boolean);
+        setTimeLabels(labels);
     }
     if (profile.survival) {
         document.getElementById('survivalXMax').value = profile.survival.xMax || '0';
@@ -3482,7 +3670,7 @@ function handlePaste(id) {
     const hasDayLabel = firstLine.some(cell => /day\s*\d+/i.test(cell));
 
     if (isHeader && hasDayLabel) {
-        document.getElementById('timePointsInput').value = firstLine.join(' ');
+        setTimeLabels(firstLine);
         textarea.value = lines.slice(1).join('\n');
     }
     renderGroupTable(card);
@@ -3523,6 +3711,152 @@ function parseData(text, expectedCount) {
     return result;
 }
 
+let timeLabelState = [];
+
+function getTimeLabels() {
+    if (timeLabelState.length) {
+        return timeLabelState.filter(l => l !== '');
+    }
+    const input = document.getElementById('timePointsInput');
+    if (!input) return [];
+    return input.value.trim().split(/[\t\s]+/).filter(s => s !== '');
+}
+
+function syncTimePointsInput() {
+    const input = document.getElementById('timePointsInput');
+    if (input) input.value = timeLabelState.join(' ');
+}
+
+function renderTimeLabelInputs() {
+    const list = document.getElementById('timeLabelList');
+    if (!list) return;
+    list.innerHTML = '';
+    timeLabelState.forEach((label, idx) => {
+        const item = document.createElement('div');
+        item.className = 'time-label-item';
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value = label;
+        input.addEventListener('input', () => {
+            timeLabelState[idx] = input.value.trim();
+            syncTimePointsInput();
+            refreshAllGroupTimeGrids();
+            updatePlot();
+            renderExplorerTimeSelect();
+        });
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.className = 'time-label-remove';
+        remove.textContent = '×';
+        remove.addEventListener('click', () => {
+            timeLabelState.splice(idx, 1);
+            syncTimePointsInput();
+            renderTimeLabelInputs();
+            refreshAllGroupTimeGrids();
+            updatePlot();
+            renderExplorerTimeSelect();
+        });
+        item.appendChild(input);
+        item.appendChild(remove);
+        list.appendChild(item);
+    });
+}
+
+function setTimeLabels(labels) {
+    timeLabelState = (labels || []).map(l => String(l || '').trim()).filter(l => l !== '');
+    if (timeLabelState.length === 0) {
+        timeLabelState = [];
+    }
+    syncTimePointsInput();
+    renderTimeLabelInputs();
+    refreshAllGroupTimeGrids();
+    renderExplorerTimeSelect();
+}
+
+function addTimeLabel(label = '') {
+    timeLabelState.push(label || `Time${timeLabelState.length + 1}`);
+    syncTimePointsInput();
+    renderTimeLabelInputs();
+    refreshAllGroupTimeGrids();
+    updatePlot();
+    renderExplorerTimeSelect();
+}
+
+function buildMatrixFromColumns(columns) {
+    const maxRows = Math.max(0, ...columns.map(col => col.length));
+    const lines = [];
+    for (let i = 0; i < maxRows; i++) {
+        const row = columns.map(col => (col[i] ?? '').toString().trim());
+        if (row.some(cell => cell !== '')) {
+            lines.push(row.join('\t').trimEnd());
+        }
+    }
+    return lines.join('\n');
+}
+
+function syncTextareaFromTimeGrid(card) {
+    const grid = card.querySelector('.group-time-grid');
+    const textarea = card.querySelector('.group-data-input');
+    if (!grid || !textarea) return;
+    const columns = Array.from(grid.querySelectorAll('.group-time-col textarea')).map((ta) => (
+        ta.value.split(/\r?\n/).map(v => v.trim()).filter(v => v !== '')
+    ));
+    textarea.value = buildMatrixFromColumns(columns);
+}
+
+function renderGroupTimeGrid(card) {
+    if (!card) return;
+    const grid = card.querySelector('.group-time-grid');
+    const textarea = card.querySelector('.group-data-input');
+    const preview = card.querySelector('.paste-preview');
+    if (!grid || !textarea) return;
+    const labels = getTimeLabels();
+    if (!labels.length) {
+        grid.style.display = 'none';
+        textarea.style.display = '';
+        if (preview) preview.style.display = '';
+        return;
+    }
+    grid.style.display = '';
+    textarea.style.display = 'none';
+    if (preview) preview.style.display = 'none';
+    const existingCols = {};
+    grid.querySelectorAll('.group-time-col').forEach((col) => {
+        const label = col.dataset.label;
+        const ta = col.querySelector('textarea');
+        existingCols[label] = ta ? ta.value : '';
+    });
+    const parsed = parseData(textarea.value, labels.length);
+    grid.innerHTML = '';
+    labels.forEach((label, idx) => {
+        const col = document.createElement('div');
+        col.className = 'group-time-col';
+        col.dataset.label = label;
+        const lab = document.createElement('label');
+        lab.textContent = label || `Time${idx + 1}`;
+        const ta = document.createElement('textarea');
+        const existing = existingCols[label];
+        if (existing !== undefined && existing !== '') {
+            ta.value = existing;
+        } else {
+            ta.value = (parsed[idx] || []).join('\n');
+        }
+        ta.addEventListener('input', () => {
+            syncTextareaFromTimeGrid(card);
+            updatePlot();
+        });
+        col.appendChild(lab);
+        col.appendChild(ta);
+        grid.appendChild(col);
+    });
+}
+
+function refreshAllGroupTimeGrids() {
+    document.querySelectorAll('.group-card').forEach((card) => {
+        renderGroupTimeGrid(card);
+    });
+}
+
 function getColumnCount(text) {
     const line = text.trim().split('\n').find(l => l.trim() !== "");
     if (!line) return 0;
@@ -3542,7 +3876,7 @@ function renderGroupTable(card) {
     const mode = document.getElementById('plotMode').value;
     const timeLabels = mode === 'comparison'
         ? ["Data"]
-        : document.getElementById('timePointsInput').value.trim().split(/[\t\s]+/).filter(s => s !== "");
+        : getTimeLabels();
     const colCount = timeLabels.length > 0 ? timeLabels.length : getColumnCount(text);
     if (colCount === 0) {
         preview.innerHTML = '';
@@ -3829,6 +4163,18 @@ function setPlotMode() {
         if (previewRow) previewRow.style.display = '';
         if (longitudinalArea) longitudinalArea.style.display = 'none';
         statsPanels.forEach(panel => panel.style.display = '');
+    }
+    if (mode === 'time') {
+        refreshAllGroupTimeGrids();
+    } else {
+        document.querySelectorAll('.group-card').forEach((card) => {
+            const grid = card.querySelector('.group-time-grid');
+            const textarea = card.querySelector('.group-data-input');
+            const preview = card.querySelector('.paste-preview');
+            if (grid) grid.style.display = 'none';
+            if (textarea) textarea.style.display = '';
+            if (preview) preview.style.display = '';
+        });
     }
     const showLegendEl = document.getElementById('showLegend');
     if (showLegendEl && mode === 'comparison') {
@@ -4802,7 +5148,7 @@ function updatePlot(reflowPass = 0) {
     }
     const survivalMode = mode === 'survival';
     const isCompMode = mode === 'comparison';
-    let timeLabels = isCompMode ? ["Data"] : document.getElementById('timePointsInput').value.trim().split(/[\t\s]+/).filter(s => s !== "");
+    let timeLabels = isCompMode ? ["Data"] : getTimeLabels();
     if (!survivalMode && timeLabels.length === 0) {
         const fallbackCols = Array.from(document.querySelectorAll('.group-data-input'))
             .map(el => getColumnCount(el.value))
@@ -5485,7 +5831,7 @@ function syncChartSize(axis) {
 function downloadCSV() {
     const mode = document.getElementById('plotMode').value;
     const isCompMode = mode === 'comparison';
-    const timeLabels = isCompMode ? ["Data"] : document.getElementById('timePointsInput').value.trim().split(/[\t\s]+/).filter(s => s !== "");
+    const timeLabels = isCompMode ? ["Data"] : getTimeLabels();
     if (!timeLabels.length) return;
 
     const groupCards = document.querySelectorAll('.group-card');
@@ -5527,7 +5873,7 @@ function downloadCSV() {
 function downloadStatsCode() {
     const mode = document.getElementById('plotMode').value;
     const isCompMode = mode === 'comparison';
-    const timeLabels = isCompMode ? ["Data"] : document.getElementById('timePointsInput').value.trim().split(/[\t\s]+/).filter(s => s !== "");
+    const timeLabels = isCompMode ? ["Data"] : getTimeLabels();
     if (!timeLabels.length) return;
 
     const groupCards = document.querySelectorAll('.group-card');
