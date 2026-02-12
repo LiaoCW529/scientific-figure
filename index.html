@@ -805,6 +805,10 @@
             padding: 4px 6px;
             cursor: default;
         }
+        .time-label-item input {
+            user-select: text;
+            -webkit-user-select: text;
+        }
         .time-label-item.dragging {
             opacity: 0.6;
         }
@@ -2089,6 +2093,11 @@ function renderStagedGroups() {
         const stagedList = document.getElementById('stagedTimeLabelList');
         bindStagedTimeLabelDrag(stagedList);
         area.querySelectorAll('.group-time-grid').forEach((grid) => bindGroupTimeDrag(grid));
+        area.querySelectorAll('.time-label-item input').forEach((input) => {
+            input.draggable = false;
+            input.addEventListener('mousedown', (e) => e.stopPropagation());
+            input.addEventListener('dragstart', (e) => e.preventDefault());
+        });
     }
     renderExplorerTimeSelect();
 }
@@ -3839,7 +3848,10 @@ function renderTimeLabelInputs() {
         handle.textContent = '⠿';
         const input = document.createElement('input');
         input.type = 'text';
+        input.draggable = false;
         input.value = label;
+        input.addEventListener('mousedown', (e) => e.stopPropagation());
+        input.addEventListener('dragstart', (e) => e.preventDefault());
         input.addEventListener('input', () => {
             timeLabelState[idx] = input.value.trim();
             syncTimePointsInput();
@@ -3955,9 +3967,11 @@ function bindTimeLabelDrag(listEl) {
     if (!listEl) return;
     listEl.querySelectorAll('.time-label-item').forEach((item) => {
         item.addEventListener('dragover', (e) => {
+            if (!e.dataTransfer || !e.dataTransfer.types || !Array.from(e.dataTransfer.types).includes('text/plain')) return;
             e.preventDefault();
         });
         item.addEventListener('drop', (e) => {
+            if (!e.dataTransfer || !e.dataTransfer.types || !Array.from(e.dataTransfer.types).includes('text/plain')) return;
             e.preventDefault();
             const from = parseInt(e.dataTransfer.getData('text/plain'), 10);
             const to = parseInt(item.dataset.index || '0', 10);
@@ -3981,9 +3995,11 @@ function bindStagedTimeLabelDrag(listEl) {
     if (!listEl) return;
     listEl.querySelectorAll('.time-label-item').forEach((item) => {
         item.addEventListener('dragover', (e) => {
+            if (!e.dataTransfer || !e.dataTransfer.types || !Array.from(e.dataTransfer.types).includes('text/plain')) return;
             e.preventDefault();
         });
         item.addEventListener('drop', (e) => {
+            if (!e.dataTransfer || !e.dataTransfer.types || !Array.from(e.dataTransfer.types).includes('text/plain')) return;
             e.preventDefault();
             const from = parseInt(e.dataTransfer.getData('text/plain'), 10);
             const to = parseInt(item.dataset.index || '0', 10);
