@@ -960,6 +960,8 @@
             <div class="explorer-staged-actions">
                 <button type="button" class="explorer-apply" onclick="applyStagedGroups()">Send to Main</button>
                 <button type="button" class="explorer-apply" onclick="addExplorerGroup()">Add Group</button>
+                <button type="button" class="explorer-apply" onclick="saveExplorerStash()">Save Staged</button>
+                <button type="button" class="explorer-apply" onclick="loadExplorerStash()">Load Staged</button>
                 <button type="button" class="explorer-clear" onclick="clearStagedGroups()">Clear</button>
             </div>
         </div>
@@ -2074,7 +2076,7 @@ function renderStagedGroups() {
                 <div class="staged-item" style="flex:1 1 100%;">
                     <label style="font-size:0.75rem; color:var(--explorer-muted);">Group ${i}</label>
                     <input type="text" data-staged-name="${i}" value="${nameVal}" style="width:100%; font-size:0.85rem; padding:4px 6px; border-radius:4px; border:1px solid var(--explorer-border); background:var(--explorer-card); color:var(--explorer-text);" oninput="updateStagedName(${i}, this.value)">
-                    <div class="group-time-grid">${timeCols}</div>
+                    <div class="group-time-grid" data-staged-group="${i}">${timeCols}</div>
                 </div>
             `;
         } else {
@@ -2127,6 +2129,35 @@ function updateStagedGroupTimeColumn(groupIdx, timeIdx, value) {
     stagedGroups[groupIdx] = setTimeColumnsInGroupText(current, timeIdx, values, count);
 }
 
+function saveExplorerStash() {
+    collectStagedGroupsFromUI();
+    const payload = {
+        groups: stagedGroups,
+        names: stagedGroupNames,
+        timeLabels: stagedTimeLabels
+    };
+    localStorage.setItem('explorerStash', JSON.stringify(payload));
+    showToast('Staged data saved.');
+}
+
+function loadExplorerStash() {
+    const raw = localStorage.getItem('explorerStash');
+    if (!raw) {
+        showToast('No saved staged data.');
+        return;
+    }
+    try {
+        const payload = JSON.parse(raw);
+        stagedGroups = payload.groups || {};
+        stagedGroupNames = payload.names || {};
+        stagedTimeLabels = payload.timeLabels || [];
+        renderStagedGroups();
+        showToast('Staged data loaded.');
+    } catch (err) {
+        showToast('Failed to load staged data.');
+    }
+}
+
 function addStagedTimeLabel() {
     stagedTimeLabels.push(`Time${stagedTimeLabels.length + 1}`);
     renderStagedGroups();
@@ -2152,15 +2183,29 @@ function applyStagedTimeLabelsBulk() {
 function collectStagedGroupsFromUI() {
     const area = document.getElementById('explorer-staged-area');
     if (!area) return;
-    const inputs = area.querySelectorAll('textarea[data-staged]');
+    const mode = getExplorerMode();
     stagedGroups = {};
     stagedGroupNames = {};
-    inputs.forEach((ta) => {
-        const idx = parseInt(ta.dataset.staged, 10);
-        if (!isNaN(idx)) {
-            stagedGroups[idx] = ta.value;
-        }
-    });
+    if (mode === 'time') {
+        const grids = area.querySelectorAll('.group-time-grid[data-staged-group]');
+        grids.forEach((grid) => {
+            const groupIdx = parseInt(grid.dataset.stagedGroup, 10);
+            if (isNaN(groupIdx)) return;
+            const cols = Array.from(grid.querySelectorAll('.group-time-col')).map((col) => {
+                const ta = col.querySelector('textarea');
+                return ta ? ta.value.split(/\r?\n/).map(v => v.trim()).filter(v => v !== '') : [];
+            });
+            stagedGroups[groupIdx] = buildMatrixFromColumns(cols);
+        });
+    } else {
+        const inputs = area.querySelectorAll('textarea[data-staged]');
+        inputs.forEach((ta) => {
+            const idx = parseInt(ta.dataset.staged, 10);
+            if (!isNaN(idx)) {
+                stagedGroups[idx] = ta.value;
+            }
+        });
+    }
     const nameInputs = area.querySelectorAll('input[data-staged-name]');
     nameInputs.forEach((inp) => {
         const idx = parseInt(inp.dataset.stagedName, 10);
@@ -2541,7 +2586,10 @@ function renderExplorerMenuGroups() {
     for (let i = 1; i <= maxGroup; i++) {
         const btn = document.createElement('button');
         btn.type = 'button';
-        btn.textContent = `Stage to Group ${i}`;
+        const mainName = document.querySelector(`#group_${i} .group-name-input`)?.value;
+        const stagedName = stagedGroupNames[i];
+        const label = stagedName || mainName || `Group ${i}`;
+        btn.textContent = `Stage to ${label}`;
         btn.addEventListener('click', () => sendExplorerToGroup(i));
         container.appendChild(btn);
     }
