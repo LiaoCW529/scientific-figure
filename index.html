@@ -803,10 +803,25 @@
             border: 1px solid var(--border);
             border-radius: 6px;
             padding: 4px 6px;
-            cursor: grab;
+            cursor: default;
         }
         .time-label-item.dragging {
             opacity: 0.6;
+        }
+        .time-label-drag {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 18px;
+            height: 18px;
+            border-radius: 4px;
+            background: var(--panel);
+            border: 1px solid var(--border);
+            font-size: 12px;
+            cursor: grab;
+            user-select: none;
+        }
+        .time-label-drag.dragging {
             cursor: grabbing;
         }
         .time-label-bulk {
@@ -2020,7 +2035,8 @@ function renderStagedGroups() {
     const mode = getExplorerMode();
     if (mode === 'time') {
         const timeItems = stagedTimeLabels.map((label, idx) => `
-            <div class="time-label-item" draggable="true" data-index="${idx}">
+            <div class="time-label-item" data-index="${idx}">
+                <span class="time-label-drag" draggable="true" data-index="${idx}">⠿</span>
                 <input type="text" value="${label}" oninput="updateStagedTimeLabel(${idx}, this.value)">
                 <button type="button" class="time-label-remove" onclick="removeStagedTimeLabel(${idx})">×</button>
             </div>
@@ -3815,8 +3831,12 @@ function renderTimeLabelInputs() {
     timeLabelState.forEach((label, idx) => {
         const item = document.createElement('div');
         item.className = 'time-label-item';
-        item.draggable = true;
         item.dataset.index = String(idx);
+        const handle = document.createElement('span');
+        handle.className = 'time-label-drag';
+        handle.draggable = true;
+        handle.dataset.index = String(idx);
+        handle.textContent = '⠿';
         const input = document.createElement('input');
         input.type = 'text';
         input.value = label;
@@ -3839,6 +3859,7 @@ function renderTimeLabelInputs() {
             updatePlot();
             renderExplorerTimeSelect();
         });
+        item.appendChild(handle);
         item.appendChild(input);
         item.appendChild(remove);
         list.appendChild(item);
@@ -3933,13 +3954,6 @@ function reorderStagedTimeLabels(fromIdx, toIdx) {
 function bindTimeLabelDrag(listEl) {
     if (!listEl) return;
     listEl.querySelectorAll('.time-label-item').forEach((item) => {
-        item.addEventListener('dragstart', (e) => {
-            item.classList.add('dragging');
-            e.dataTransfer.setData('text/plain', item.dataset.index || '0');
-        });
-        item.addEventListener('dragend', () => {
-            item.classList.remove('dragging');
-        });
         item.addEventListener('dragover', (e) => {
             e.preventDefault();
         });
@@ -3952,18 +3966,20 @@ function bindTimeLabelDrag(listEl) {
             }
         });
     });
+    listEl.querySelectorAll('.time-label-drag').forEach((handle) => {
+        handle.addEventListener('dragstart', (e) => {
+            handle.classList.add('dragging');
+            e.dataTransfer.setData('text/plain', handle.dataset.index || '0');
+        });
+        handle.addEventListener('dragend', () => {
+            handle.classList.remove('dragging');
+        });
+    });
 }
 
 function bindStagedTimeLabelDrag(listEl) {
     if (!listEl) return;
     listEl.querySelectorAll('.time-label-item').forEach((item) => {
-        item.addEventListener('dragstart', (e) => {
-            item.classList.add('dragging');
-            e.dataTransfer.setData('text/plain', item.dataset.index || '0');
-        });
-        item.addEventListener('dragend', () => {
-            item.classList.remove('dragging');
-        });
         item.addEventListener('dragover', (e) => {
             e.preventDefault();
         });
@@ -3974,6 +3990,15 @@ function bindStagedTimeLabelDrag(listEl) {
             if (!isNaN(from) && !isNaN(to)) {
                 reorderStagedTimeLabels(from, to);
             }
+        });
+    });
+    listEl.querySelectorAll('.time-label-drag').forEach((handle) => {
+        handle.addEventListener('dragstart', (e) => {
+            handle.classList.add('dragging');
+            e.dataTransfer.setData('text/plain', handle.dataset.index || '0');
+        });
+        handle.addEventListener('dragend', () => {
+            handle.classList.remove('dragging');
         });
     });
 }
