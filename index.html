@@ -3538,7 +3538,8 @@ function collectProfile() {
     const groupCards = document.querySelectorAll('.group-card');
     const groups = Array.from(groupCards).map(card => ({
         name: card.querySelector('.group-name-input').value,
-        color: card.querySelector('.group-color-input').value
+        color: card.querySelector('.group-color-input').value,
+        data: card.querySelector('.group-data-input').value
     }));
     return {
         version: 1,
@@ -3672,10 +3673,13 @@ function applyProfile(profile) {
             if (card) {
                 const nameEl = card.querySelector('.group-name-input');
                 const colorEl = card.querySelector('.group-color-input');
+                const dataEl = card.querySelector('.group-data-input');
                 if (nameEl && g.name) nameEl.value = g.name;
                 if (colorEl && g.color) colorEl.value = g.color;
+                if (dataEl && g.data !== undefined) dataEl.value = g.data;
+                if (dataEl) handlePaste(card.id);
             } else {
-                addNewGroup(g.name, g.color, '');
+                addNewGroup(g.name, g.color, g.data || '');
             }
         });
     }
@@ -3683,6 +3687,7 @@ function applyProfile(profile) {
         groupOffsetX = profile.barOffsets.map(v => parseFloat(v) || 0);
     }
     syncBarControlsUI();
+    refreshAllGroupTimeGrids();
     updatePlot();
 }
 
