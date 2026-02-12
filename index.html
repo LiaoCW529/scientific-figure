@@ -803,6 +803,11 @@
             border: 1px solid var(--border);
             border-radius: 6px;
             padding: 4px 6px;
+            cursor: grab;
+        }
+        .time-label-item.dragging {
+            opacity: 0.6;
+            cursor: grabbing;
         }
         .time-label-item input {
             width: 90px;
@@ -1998,7 +2003,7 @@ function renderStagedGroups() {
     const mode = getExplorerMode();
     if (mode === 'time') {
         const timeItems = stagedTimeLabels.map((label, idx) => `
-            <div class="time-label-item">
+            <div class="time-label-item" draggable="true" data-index="${idx}">
                 <input type="text" value="${label}" oninput="updateStagedTimeLabel(${idx}, this.value)">
                 <button type="button" class="time-label-remove" onclick="removeStagedTimeLabel(${idx})">×</button>
             </div>
@@ -2006,23 +2011,49 @@ function renderStagedGroups() {
         html += `
             <div class="staged-item" style="flex:1 1 100%;">
                 <label style="font-size:0.75rem; color:var(--explorer-muted);">Time Labels</label>
-                <div class="time-label-list">${timeItems}</div>
+                <div class="time-label-list" id="stagedTimeLabelList">${timeItems}</div>
                 <button type="button" class="btn-mini" style="width:auto; margin-top:6px;" onclick="addStagedTimeLabel()">+ Time</button>
             </div>
         `;
     }
     for (let i = 1; i <= maxGroup; i++) {
-        const val = stagedGroups[i] || '';
         const nameVal = stagedGroupNames[i] || `Group ${i}`;
-        html += `
-            <div class="staged-item">
-                <label style="font-size:0.75rem; color:var(--explorer-muted);">Group ${i}</label>
-                <input type="text" data-staged-name="${i}" value="${nameVal}" style="width:100%; font-size:0.85rem; padding:4px 6px; border-radius:4px; border:1px solid var(--explorer-border); background:var(--explorer-card); color:var(--explorer-text);" oninput="updateStagedName(${i}, this.value)">
-                <textarea data-staged="${i}" oninput="updateStagedFromTextarea(${i}, this.value)">${val}</textarea>
-            </div>
-        `;
+        if (mode === 'time') {
+            const cols = parseData(stagedGroups[i] || '', stagedTimeLabels.length || 1);
+            const timeCols = (stagedTimeLabels.length ? stagedTimeLabels : Array.from({ length: cols.length || 1 }, (_, idx) => `Time${idx + 1}`))
+                .map((label, idx) => {
+                    const values = (cols[idx] || []).join('\n');
+                    return `
+                        <div class="group-time-col" draggable="true" data-index="${idx}" data-staged-group="${i}">
+                            <label>${label || `Time${idx + 1}`}</label>
+                            <textarea oninput="updateStagedGroupTimeColumn(${i}, ${idx}, this.value)">${values}</textarea>
+                        </div>
+                    `;
+                }).join('');
+            html += `
+                <div class="staged-item" style="flex:1 1 100%;">
+                    <label style="font-size:0.75rem; color:var(--explorer-muted);">Group ${i}</label>
+                    <input type="text" data-staged-name="${i}" value="${nameVal}" style="width:100%; font-size:0.85rem; padding:4px 6px; border-radius:4px; border:1px solid var(--explorer-border); background:var(--explorer-card); color:var(--explorer-text);" oninput="updateStagedName(${i}, this.value)">
+                    <div class="group-time-grid">${timeCols}</div>
+                </div>
+            `;
+        } else {
+            const val = stagedGroups[i] || '';
+            html += `
+                <div class="staged-item">
+                    <label style="font-size:0.75rem; color:var(--explorer-muted);">Group ${i}</label>
+                    <input type="text" data-staged-name="${i}" value="${nameVal}" style="width:100%; font-size:0.85rem; padding:4px 6px; border-radius:4px; border:1px solid var(--explorer-border); background:var(--explorer-card); color:var(--explorer-text);" oninput="updateStagedName(${i}, this.value)">
+                    <textarea data-staged="${i}" oninput="updateStagedFromTextarea(${i}, this.value)">${val}</textarea>
+                </div>
+            `;
+        }
     }
     area.innerHTML = html;
+    if (mode === 'time') {
+        const stagedList = document.getElementById('stagedTimeLabelList');
+        bindStagedTimeLabelDrag(stagedList);
+        area.querySelectorAll('.group-time-grid').forEach((grid) => bindGroupTimeDrag(grid));
+    }
     renderExplorerTimeSelect();
 }
 
@@ -2042,6 +2073,13 @@ function updateStagedTimeLabel(idx, value) {
     stagedTimeLabels = stagedTimeLabels.filter(l => l !== '');
     renderStagedGroups();
     renderExplorerTimeSelect();
+}
+
+function updateStagedGroupTimeColumn(groupIdx, timeIdx, value) {
+    const values = value.split(/\r?\n/).map(v => v.trim()).filter(v => v !== '');
+    const count = Math.max(stagedTimeLabels.length, timeIdx + 1);
+    const current = stagedGroups[groupIdx] || '';
+    stagedGroups[groupIdx] = setTimeColumnsInGroupText(current, timeIdx, values, count);
 }
 
 function addStagedTimeLabel() {
@@ -3734,6 +3772,8 @@ function renderTimeLabelInputs() {
     timeLabelState.forEach((label, idx) => {
         const item = document.createElement('div');
         item.className = 'time-label-item';
+        item.draggable = true;
+        item.dataset.index = String(idx);
         const input = document.createElement('input');
         input.type = 'text';
         input.value = label;
@@ -3760,6 +3800,7 @@ function renderTimeLabelInputs() {
         item.appendChild(remove);
         list.appendChild(item);
     });
+    bindTimeLabelDrag(list);
 }
 
 function setTimeLabels(labels) {
@@ -3792,6 +3833,97 @@ function buildMatrixFromColumns(columns) {
         }
     }
     return lines.join('\n');
+}
+
+function reorderArray(arr, fromIdx, toIdx) {
+    const next = arr.slice();
+    const [moved] = next.splice(fromIdx, 1);
+    next.splice(toIdx, 0, moved);
+    return next;
+}
+
+function reorderTimeLabels(fromIdx, toIdx) {
+    if (fromIdx === toIdx) return;
+    const oldLabels = timeLabelState.slice();
+    if (fromIdx < 0 || toIdx < 0 || fromIdx >= oldLabels.length || toIdx >= oldLabels.length) return;
+    const order = reorderArray(oldLabels.map((_, idx) => idx), fromIdx, toIdx);
+    timeLabelState = order.map(i => oldLabels[i]);
+    syncTimePointsInput();
+    document.querySelectorAll('.group-card').forEach((card) => {
+        const textarea = card.querySelector('.group-data-input');
+        if (!textarea) return;
+        const columns = parseData(textarea.value, oldLabels.length);
+        const reordered = order.map(i => columns[i] || []);
+        textarea.value = buildMatrixFromColumns(reordered);
+    });
+    renderTimeLabelInputs();
+    refreshAllGroupTimeGrids();
+    updatePlot();
+    renderExplorerTimeSelect();
+}
+
+function reorderStagedTimeLabels(fromIdx, toIdx) {
+    if (fromIdx === toIdx) return;
+    const oldLabels = stagedTimeLabels.slice();
+    if (fromIdx < 0 || toIdx < 0 || fromIdx >= oldLabels.length || toIdx >= oldLabels.length) return;
+    const order = reorderArray(oldLabels.map((_, idx) => idx), fromIdx, toIdx);
+    stagedTimeLabels = order.map(i => oldLabels[i]);
+    Object.keys(stagedGroups).forEach((key) => {
+        const text = stagedGroups[key] || '';
+        const columns = parseData(text, oldLabels.length);
+        const reordered = order.map(i => columns[i] || []);
+        stagedGroups[key] = buildMatrixFromColumns(reordered);
+    });
+    renderStagedGroups();
+    renderExplorerTimeSelect();
+}
+
+function bindTimeLabelDrag(listEl) {
+    if (!listEl) return;
+    listEl.querySelectorAll('.time-label-item').forEach((item) => {
+        item.addEventListener('dragstart', (e) => {
+            item.classList.add('dragging');
+            e.dataTransfer.setData('text/plain', item.dataset.index || '0');
+        });
+        item.addEventListener('dragend', () => {
+            item.classList.remove('dragging');
+        });
+        item.addEventListener('dragover', (e) => {
+            e.preventDefault();
+        });
+        item.addEventListener('drop', (e) => {
+            e.preventDefault();
+            const from = parseInt(e.dataTransfer.getData('text/plain'), 10);
+            const to = parseInt(item.dataset.index || '0', 10);
+            if (!isNaN(from) && !isNaN(to)) {
+                reorderTimeLabels(from, to);
+            }
+        });
+    });
+}
+
+function bindStagedTimeLabelDrag(listEl) {
+    if (!listEl) return;
+    listEl.querySelectorAll('.time-label-item').forEach((item) => {
+        item.addEventListener('dragstart', (e) => {
+            item.classList.add('dragging');
+            e.dataTransfer.setData('text/plain', item.dataset.index || '0');
+        });
+        item.addEventListener('dragend', () => {
+            item.classList.remove('dragging');
+        });
+        item.addEventListener('dragover', (e) => {
+            e.preventDefault();
+        });
+        item.addEventListener('drop', (e) => {
+            e.preventDefault();
+            const from = parseInt(e.dataTransfer.getData('text/plain'), 10);
+            const to = parseInt(item.dataset.index || '0', 10);
+            if (!isNaN(from) && !isNaN(to)) {
+                reorderStagedTimeLabels(from, to);
+            }
+        });
+    });
 }
 
 function syncTextareaFromTimeGrid(card) {
@@ -3832,6 +3964,8 @@ function renderGroupTimeGrid(card) {
         const col = document.createElement('div');
         col.className = 'group-time-col';
         col.dataset.label = label;
+        col.dataset.index = String(idx);
+        col.draggable = true;
         const lab = document.createElement('label');
         lab.textContent = label || `Time${idx + 1}`;
         const ta = document.createElement('textarea');
@@ -3849,11 +3983,36 @@ function renderGroupTimeGrid(card) {
         col.appendChild(ta);
         grid.appendChild(col);
     });
+    bindGroupTimeDrag(grid);
 }
 
 function refreshAllGroupTimeGrids() {
     document.querySelectorAll('.group-card').forEach((card) => {
         renderGroupTimeGrid(card);
+    });
+}
+
+function bindGroupTimeDrag(grid) {
+    if (!grid) return;
+    grid.querySelectorAll('.group-time-col').forEach((col) => {
+        col.addEventListener('dragstart', (e) => {
+            col.classList.add('dragging');
+            e.dataTransfer.setData('text/plain', col.dataset.index || '0');
+        });
+        col.addEventListener('dragend', () => {
+            col.classList.remove('dragging');
+        });
+        col.addEventListener('dragover', (e) => {
+            e.preventDefault();
+        });
+        col.addEventListener('drop', (e) => {
+            e.preventDefault();
+            const from = parseInt(e.dataTransfer.getData('text/plain'), 10);
+            const to = parseInt(col.dataset.index || '0', 10);
+            if (!isNaN(from) && !isNaN(to)) {
+                reorderTimeLabels(from, to);
+            }
+        });
     });
 }
 
