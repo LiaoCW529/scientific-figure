@@ -3543,7 +3543,7 @@ function collectProfile() {
     return {
         version: 1,
         mode,
-        timeLabels: getTimeLabels().join(' '),
+        timeLabels: getTimeLabels(),
         survival: {
             xMax: document.getElementById('survivalXMax').value,
             yPercent: document.getElementById('survivalYAxisPercent').checked
@@ -3601,8 +3601,13 @@ function applyActiveProfile() {
 function applyProfile(profile) {
     if (!profile || typeof profile !== 'object') return;
     if (profile.timeLabels !== undefined) {
-        const labels = String(profile.timeLabels || '').trim().split(/[\t\s]+/).filter(Boolean);
-        setTimeLabels(labels);
+        if (Array.isArray(profile.timeLabels)) {
+            setTimeLabels(profile.timeLabels);
+        } else {
+            const labels = parseTimeLabelText(String(profile.timeLabels || ''));
+            setTimeLabels(labels);
+        }
+        updateTimeLabelsBulk();
     }
     if (profile.survival) {
         document.getElementById('survivalXMax').value = profile.survival.xMax || '0';
@@ -3741,7 +3746,7 @@ function loadProfile(event) {
 function resetProfile() {
     activeProfile = null;
     const defaultProfile = {
-        timeLabels: 'Day1 Day3 Day7',
+        timeLabels: ['Day1', 'Day3', 'Day7'],
         survival: { xMax: '0', yPercent: false },
         chartSize: { width: '300', height: '200' },
         yAxis: { min: '0', max: '0', ticks: '5', errorType: 'se' },
