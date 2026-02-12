@@ -841,6 +841,15 @@
                     <option value="">No sheet</option>
                 </select>
             </div>
+            <div>
+                <label for="explorerMode">Mode</label>
+                <select id="explorerMode" class="text-input">
+                    <option value="time">Time Series Mode</option>
+                    <option value="comparison">Comparison Mode</option>
+                    <option value="survival">Survival Mode</option>
+                    <option value="longitudinal">Longitudinal State-Space Mode</option>
+                </select>
+            </div>
             <small class="explorer-note">Files stay local; nothing is uploaded.</small>
         </div>
         <div id="explorer-preview-area">
@@ -2800,6 +2809,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const explorerPanel = document.getElementById('explorer-panel');
     const explorerHandle = document.getElementById('explorer-handle');
     const explorerHideBtn = document.getElementById('explorerHideBtn');
+    const explorerModeSelect = document.getElementById('explorerMode');
     if (explorerHandle && explorerPanel) {
         explorerHandle.addEventListener('click', () => {
             explorerPanel.classList.toggle('pinned');
@@ -2808,16 +2818,23 @@ document.addEventListener('DOMContentLoaded', () => {
     if (explorerPanel) {
         explorerPanel.addEventListener('mouseenter', () => {
             explorerPanel.classList.add('pinned');
-            const explorerMode = document.getElementById('explorerMode');
             const plotMode = document.getElementById('plotMode');
-            if (explorerMode && plotMode) {
-                explorerMode.value = plotMode.value;
+            if (explorerModeSelect && plotMode) {
+                explorerModeSelect.value = plotMode.value;
             }
         });
     }
     if (explorerHideBtn && explorerPanel) {
         explorerHideBtn.addEventListener('click', () => {
             explorerPanel.classList.remove('pinned');
+        });
+    }
+    if (explorerModeSelect) {
+        explorerModeSelect.addEventListener('change', () => {
+            const plotMode = document.getElementById('plotMode');
+            if (!plotMode) return;
+            plotMode.value = explorerModeSelect.value;
+            setPlotMode();
         });
     }
     const explorerDirInput = document.getElementById('explorerDirInput');
@@ -3614,6 +3631,7 @@ ${welchTTest.toString()}`;
 
 function setPlotMode() {
     const mode = document.getElementById('plotMode').value;
+    const explorerMode = document.getElementById('explorerMode');
     const timeInput = document.getElementById('timePointsInput');
     const groupSection = document.getElementById('groupDataSection');
     const survivalSection = document.getElementById('survivalSection');
@@ -3624,6 +3642,7 @@ function setPlotMode() {
     const statsPanels = document.querySelectorAll('.stats-panel');
     const yMaxInputEl = document.getElementById('yMaxInput');
 
+    if (explorerMode) explorerMode.value = mode;
     if (mode === 'longitudinal') {
         if (timeInput) timeInput.disabled = true;
         if (groupSection) groupSection.style.display = 'none';
