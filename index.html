@@ -2109,6 +2109,7 @@ function updateStagedFromTextarea(idx, value) {
 }
 function updateStagedName(idx, value) {
     stagedGroupNames[idx] = value;
+    renderExplorerMenuGroups();
 }
 function updateStagedTimeLabels(value) {
     stagedTimeLabels = parseTimeLabelText(value);
@@ -2586,9 +2587,11 @@ function renderExplorerMenuGroups() {
     for (let i = 1; i <= maxGroup; i++) {
         const btn = document.createElement('button');
         btn.type = 'button';
-        const mainName = document.querySelector(`#group_${i} .group-name-input`)?.value;
-        const stagedName = stagedGroupNames[i];
-        const label = stagedName || mainName || `Group ${i}`;
+        const stagedInput = document.querySelector(`#explorer-staged-area input[data-staged-name="${i}"]`);
+        const stagedInputVal = stagedInput ? stagedInput.value.trim() : '';
+        const stagedName = (stagedGroupNames[i] || '').trim();
+        const mainName = (document.querySelector(`#group_${i} .group-name-input`)?.value || '').trim();
+        const label = stagedInputVal || stagedName || mainName || `Group ${i}`;
         btn.textContent = `Stage to ${label}`;
         btn.addEventListener('click', () => sendExplorerToGroup(i));
         container.appendChild(btn);
