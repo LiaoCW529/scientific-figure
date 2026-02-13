@@ -1071,6 +1071,9 @@
                     Italic
                 </label>
             </div>
+            <div style="font-size:0.72rem; color: var(--muted); margin:-6px 0 8px;">
+                Label format: `[i]italic[/i]` and `[sup]sup[/sup]` (works in title, axis labels, group names, legend, time labels).
+            </div>
             <div id="groupsContainer">
                 </div>
             <button class="btn-add" onclick="addNewGroup()">+ Add New Group</button>
@@ -6123,6 +6126,61 @@ function updateExplorerTitleDisplay() {
     displayEl.textContent = title || '-';
 }
 
+function escapeSvgText(text) {
+    return String(text || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function parseRichLabelSegments(text) {
+    const raw = String(text || '');
+    const segments = [];
+    const tokenRe = /\[(\/?)(i|sup)\]/gi;
+    let last = 0;
+    let italic = false;
+    let sup = false;
+    let match;
+    while ((match = tokenRe.exec(raw)) !== null) {
+        if (match.index > last) {
+            segments.push({ text: raw.slice(last, match.index), italic, sup });
+        }
+        const closing = !!match[1];
+        const tag = match[2].toLowerCase();
+        if (tag === 'i') italic = !closing;
+        if (tag === 'sup') sup = !closing;
+        last = tokenRe.lastIndex;
+    }
+    if (last < raw.length) {
+        segments.push({ text: raw.slice(last), italic, sup });
+    }
+    if (!segments.length) {
+        segments.push({ text: raw, italic: false, sup: false });
+    }
+    return segments;
+}
+
+function buildRichLabelTspans(text, baseFontSize, defaultItalic = false) {
+    const segments = parseRichLabelSegments(text);
+    const baseSize = Math.max(1, parseFloat(baseFontSize) || 10);
+    return segments.map((seg) => {
+        const attrs = [];
+        if (defaultItalic || seg.italic) attrs.push('font-style="italic"');
+        if (seg.sup) {
+            attrs.push('baseline-shift="super"');
+            attrs.push(`font-size="${Math.max(1, baseSize * 0.68).toFixed(2)}"`);
+        }
+        const attrText = attrs.length ? ` ${attrs.join(' ')}` : '';
+        return `<tspan${attrText}>${escapeSvgText(seg.text)}</tspan>`;
+    }).join('');
+}
+
+function buildRichLabelTextTag(attrString, text, baseFontSize, defaultItalic = false) {
+    return `<text ${attrString}>${buildRichLabelTspans(text, baseFontSize, defaultItalic)}</text>`;
+}
+
 function updatePlot(reflowPass = 0) {
     const mode = document.getElementById('plotMode').value;
     if (mode === 'longitudinal') {
@@ -6331,7 +6389,12 @@ function updatePlot(reflowPass = 0) {
         if (titleText) {
             const titleX = width / 2 + titleOffsetX;
             const titleY = titleFontSize + 6 + titleOffsetY;
-            svgItems.push(`<text class="axis-label" data-label="title" x="${titleX}" y="${titleY}" text-anchor="middle" font-size="${titleFontSize}" font-family="Arial" font-style="${titleFontStyle}" fill="${axisColor}">${titleText}</text>`);
+            svgItems.push(buildRichLabelTextTag(
+                `class="axis-label" data-label="title" x="${titleX}" y="${titleY}" text-anchor="middle" font-size="${titleFontSize}" font-family="Arial" fill="${axisColor}"`,
+                titleText,
+                titleFontSize,
+                titleFontStyle === 'italic'
+            ));
         }
         svgItems.push(`<line x1="${pL}" y1="${height-pB}" x2="${pL}" y2="${pT}" stroke="${axisColor}" stroke-width="1.2"/>`);
 
@@ -6354,12 +6417,20 @@ function updatePlot(reflowPass = 0) {
         if (xAxisLabel) {
             const xLabelY = height - pB + xAxisFontSize + xLabelOffset + xAxisLabelOffsetY;
             const xLabelX = pL + (graphW / 2) + xAxisLabelOffsetX;
-            svgItems.push(`<text class="axis-label" data-label="x" x="${xLabelX}" y="${xLabelY}" text-anchor="middle" font-size="${xAxisFontSize}" font-family="Arial" fill="${axisColor}">${xAxisLabel}</text>`);
+            svgItems.push(buildRichLabelTextTag(
+                `class="axis-label" data-label="x" x="${xLabelX}" y="${xLabelY}" text-anchor="middle" font-size="${xAxisFontSize}" font-family="Arial" fill="${axisColor}"`,
+                xAxisLabel,
+                xAxisFontSize
+            ));
         }
         if (yAxisLabel) {
             const yLabelX = pL - yAxisFontSize - yLabelOffset + yAxisLabelOffsetX;
             const yLabelY = pT + (graphH / 2) + yAxisLabelOffsetY;
-            svgItems.push(`<text class="axis-label" data-label="y" x="${yLabelX}" y="${yLabelY}" text-anchor="middle" font-size="${yAxisFontSize}" font-family="Arial" fill="${axisColor}" transform="rotate(-90 ${yLabelX} ${yLabelY})">${yAxisLabel}</text>`);
+            svgItems.push(buildRichLabelTextTag(
+                `class="axis-label" data-label="y" x="${yLabelX}" y="${yLabelY}" text-anchor="middle" font-size="${yAxisFontSize}" font-family="Arial" fill="${axisColor}" transform="rotate(-90 ${yLabelX} ${yLabelY})"`,
+                yAxisLabel,
+                yAxisFontSize
+            ));
         }
 
         groupConfigs.forEach((group) => {
@@ -6398,9 +6469,9 @@ function updatePlot(reflowPass = 0) {
             groupConfigs.forEach((group, i) => {
                 const itemY = ly + (i * legendFontSize * 1.5);
                 svgItems.push(`
-        <g id="Legend_${group.name}">
+        <g id="Legend_${i}">
             <circle cx="${lx}" cy="${itemY}" r="${dotR}" fill="${group.color}" stroke="${axisColor}" stroke-width="0.8" />
-            <text x="${lx + legendFontSize}" y="${itemY}" dominant-baseline="central" fill="${axisColor}">${group.name}</text>
+            ${buildRichLabelTextTag(`x="${lx + legendFontSize}" y="${itemY}" dominant-baseline="central" fill="${axisColor}"`, group.name, legendFontSize)}
         </g>`);
             });
             svgItems.push(`</g>`);
@@ -6543,7 +6614,12 @@ function updatePlot(reflowPass = 0) {
     if (titleText) {
         const titleX = width / 2 + titleOffsetX;
         const titleY = titleFontSize + 6 + titleOffsetY;
-        svgItems.push(`<text class="axis-label" data-label="title" x="${titleX}" y="${titleY}" text-anchor="middle" font-size="${titleFontSize}" font-family="Arial" font-style="${titleFontStyle}" fill="${axisColor}">${titleText}</text>`);
+        svgItems.push(buildRichLabelTextTag(
+            `class="axis-label" data-label="title" x="${titleX}" y="${titleY}" text-anchor="middle" font-size="${titleFontSize}" font-family="Arial" fill="${axisColor}"`,
+            titleText,
+            titleFontSize,
+            titleFontStyle === 'italic'
+        ));
     }
     // 軸
     svgItems.push(`<line x1="${pL}" y1="${height-pB}" x2="${pL}" y2="${pT}" stroke="${axisColor}" stroke-width="${strokeW}"/>`);
@@ -6559,12 +6635,20 @@ function updatePlot(reflowPass = 0) {
     if (xAxisLabel) {
         const xLabelY = height - pB + xAxisFontSize + xLabelOffset + xAxisLabelOffsetY;
         const xLabelX = pL + (graphW / 2) + xAxisLabelOffsetX;
-        svgItems.push(`<text class="axis-label" data-label="x" x="${xLabelX}" y="${xLabelY}" text-anchor="middle" font-size="${xAxisFontSize}" font-family="Arial" fill="${axisColor}">${xAxisLabel}</text>`);
+        svgItems.push(buildRichLabelTextTag(
+            `class="axis-label" data-label="x" x="${xLabelX}" y="${xLabelY}" text-anchor="middle" font-size="${xAxisFontSize}" font-family="Arial" fill="${axisColor}"`,
+            xAxisLabel,
+            xAxisFontSize
+        ));
     }
     if (yAxisLabel) {
         const yLabelX = pL - yAxisFontSize - yLabelOffset + yAxisLabelOffsetX;
         const yLabelY = pT + (graphH / 2) + yAxisLabelOffsetY;
-        svgItems.push(`<text class="axis-label" data-label="y" x="${yLabelX}" y="${yLabelY}" text-anchor="middle" font-size="${yAxisFontSize}" font-family="Arial" fill="${axisColor}" transform="rotate(-90 ${yLabelX} ${yLabelY})">${yAxisLabel}</text>`);
+        svgItems.push(buildRichLabelTextTag(
+            `class="axis-label" data-label="y" x="${yLabelX}" y="${yLabelY}" text-anchor="middle" font-size="${yAxisFontSize}" font-family="Arial" fill="${axisColor}" transform="rotate(-90 ${yLabelX} ${yLabelY})"`,
+            yAxisLabel,
+            yAxisFontSize
+        ));
     }
 
     // 吁EイムポイントE描画
@@ -6580,7 +6664,11 @@ function updatePlot(reflowPass = 0) {
                 drawGroupContent(x, data, s, group, barWidth, baselineVal, gIdx);
             }
             const labelY = height - pB + fsX + 10 + (groupLabelOffsetY[gIdx] || 0);
-            svgItems.push(`<text class="x-axis-label group-label" data-group-index="${gIdx}" x="${x}" y="${labelY}" text-anchor="middle" font-size="${fsX}" font-family="Arial" fill="${axisColor}">${group.name}</text>`);
+            svgItems.push(buildRichLabelTextTag(
+                `class="x-axis-label group-label" data-group-index="${gIdx}" x="${x}" y="${labelY}" text-anchor="middle" font-size="${fsX}" font-family="Arial" fill="${axisColor}"`,
+                group.name,
+                fsX
+            ));
         });
     } else {
         if (showLines) {
@@ -6672,7 +6760,11 @@ function updatePlot(reflowPass = 0) {
         }
         timeLabels.forEach((label, tIdx) => {
             const xCenter = pL + (tIdx + 0.5) * (graphW / timeLabels.length);
-                svgItems.push(`<text class="x-axis-label" x="${xCenter}" y="${height-pB+fsX+10}" text-anchor="middle" font-size="${fsX}" font-family="Arial" fill="${axisColor}">${label}</text>`);
+            svgItems.push(buildRichLabelTextTag(
+                `class="x-axis-label" x="${xCenter}" y="${height-pB+fsX+10}" text-anchor="middle" font-size="${fsX}" font-family="Arial" fill="${axisColor}"`,
+                label,
+                fsX
+            ));
         });
     }
 
@@ -6742,9 +6834,9 @@ function updatePlot(reflowPass = 0) {
         groupConfigs.forEach((group, i) => {
             const itemY = ly + (i * legendFontSize * 1.5);
             svgItems.push(`
-        <g id="Legend_${group.name}">
+        <g id="Legend_${i}">
             <circle cx="${lx}" cy="${itemY}" r="${dotR}" fill="${group.color}" stroke="${axisColor}" stroke-width="${strokeW * 0.8}" />
-            <text x="${lx + legendFontSize}" y="${itemY}" dominant-baseline="central" fill="${axisColor}">${group.name}</text>
+            ${buildRichLabelTextTag(`x="${lx + legendFontSize}" y="${itemY}" dominant-baseline="central" fill="${axisColor}"`, group.name, legendFontSize)}
         </g>`);
         });
         svgItems.push(`</g>`);
