@@ -1259,9 +1259,18 @@
                         <input type="number" id="chartWidthVal" value="300" min="10" max="1000" oninput="syncChartSize('width')" style="width: 60px; padding: 2px 4px;">
                     </label>
                 </div>
-                <div style="grid-column: 2; grid-row: 4; width: 100%; display: flex; gap: 8px; justify-content: flex-start; justify-self: start;">
-                    <button class="btn-dl btn-small" onclick="downloadSVG()">Download for PPT</button>
+                <div style="grid-column: 2; grid-row: 4; width: 100%; display: flex; gap: 8px; justify-content: flex-start; justify-self: start; flex-wrap: wrap;">
+                    <input type="text" id="exportFileName" class="text-input" value="MultiGroup_Figure" style="width:180px;" aria-label="Export file name">
+                    <select id="exportFormat" class="text-input" style="width:110px;">
+                        <option value="svg">SVG</option>
+                        <option value="png">PNG</option>
+                        <option value="pdf">PDF</option>
+                        <option value="tif">TIF</option>
+                    </select>
+                    <button class="btn-dl btn-small" onclick="saveCurrentFigure()">Save Figure</button>
+                    <button class="btn-dl btn-small" onclick="chooseExportDirectory()" style="background:#6c757d;">Pick Folder</button>
                     <button class="btn-dl btn-small" onclick="copySvgToClipboard()" style="background:#007bff;">Copy SVG (for Illustrator or Affinity)</button>
+                    <div style="flex-basis:100%; font-size:0.75rem; color: var(--muted);" id="exportPathLabel">Path: Browser download</div>
                 </div>
                 <div style="grid-column: 2; grid-row: 5; width: 100%; justify-self: start;">
                     <div class="config-profile">
@@ -1283,6 +1292,8 @@
                     <div class="longitudinal-actions">
                         <button class="longitudinal-btn" type="button" data-longitudinal-export="longitudinalTimePlot" data-format="svg">Download SVG</button>
                         <button class="longitudinal-btn" type="button" data-longitudinal-export="longitudinalTimePlot" data-format="png">Download PNG</button>
+                        <button class="longitudinal-btn" type="button" data-longitudinal-export="longitudinalTimePlot" data-format="pdf">Download PDF</button>
+                        <button class="longitudinal-btn" type="button" data-longitudinal-export="longitudinalTimePlot" data-format="tif">Download TIF</button>
                         <button class="longitudinal-btn" type="button" id="longitudinalTimeReset">Reset</button>
                     </div>
                 </div>
@@ -1306,6 +1317,8 @@
                     <div class="longitudinal-actions">
                         <button class="longitudinal-btn" type="button" data-longitudinal-export="longitudinalDiffPlot" data-format="svg">Download SVG</button>
                         <button class="longitudinal-btn" type="button" data-longitudinal-export="longitudinalDiffPlot" data-format="png">Download PNG</button>
+                        <button class="longitudinal-btn" type="button" data-longitudinal-export="longitudinalDiffPlot" data-format="pdf">Download PDF</button>
+                        <button class="longitudinal-btn" type="button" data-longitudinal-export="longitudinalDiffPlot" data-format="tif">Download TIF</button>
                         <button class="longitudinal-btn" type="button" id="longitudinalDiffReset">Reset</button>
                     </div>
                 </div>
@@ -1422,6 +1435,8 @@ let plotMetrics = null;
 let chartOffsetX = 0;
 let chartOffsetY = 0;
 let activeProfile = null;
+let exportDirectoryHandle = null;
+let exportDirectoryName = '';
 let explorerData = null;
 let explorerSelectedCol = -1;
 let explorerSelecting = false;
@@ -2895,6 +2910,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (document.getElementById('plotMode')) {
         setPlotMode();
     }
+    updateExportPathLabel();
     updateExplorerTitleDisplay();
     const timeInput = document.getElementById('timePointsInput');
     if (timeInput) {
@@ -3240,14 +3256,15 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
     document.querySelectorAll('[data-longitudinal-export]').forEach((btn) => {
-        btn.addEventListener('click', () => {
+        btn.addEventListener('click', async () => {
             const svgId = btn.dataset.longitudinalExport;
-            const format = btn.dataset.format;
-            const base = svgId === 'longitudinalTimePlot' ? 'time-course' : 'difference-density';
-            if (format === 'svg') {
-                longitudinalDownloadSvg(svgId, `${base}.svg`);
-            } else {
-                longitudinalDownloadPng(svgId, `${base}.png`);
+            const format = (btn.dataset.format || 'svg').toLowerCase();
+            const suffix = svgId === 'longitudinalTimePlot' ? 'time-course' : 'difference-density';
+            const base = `${getExportBaseName('longitudinal')}_${suffix}`;
+            try {
+                await exportSvgById(svgId, format, base);
+            } catch (err) {
+                alert(`Export failed: ${err.message || err}`);
             }
         });
     });
@@ -3535,19 +3552,79 @@ function loadSampleSurvival() {
 
 function collectProfile() {
     const mode = document.getElementById('plotMode').value;
+    if (mode === 'time') {
+        document.querySelectorAll('.group-card').forEach((card) => {
+            if (card.dataset.bulkOpen === 'true') return;
+            syncTextareaFromTimeGrid(card);
+        });
+    }
     const groupCards = document.querySelectorAll('.group-card');
     const groups = Array.from(groupCards).map(card => ({
         name: card.querySelector('.group-name-input').value,
         color: card.querySelector('.group-color-input').value,
         data: card.querySelector('.group-data-input').value
     }));
+    const showLegendEl = document.getElementById('showLegend');
+    const legendFontSizeEl = document.getElementById('legendFontSize');
+    const legendStateEl = document.getElementById('legendState');
+    const yMaxInputEl = document.getElementById('yMaxInput');
+    const survivalXMaxEl = document.getElementById('survivalXMax');
+    const timeChecks = document.querySelectorAll('#longitudinalTimeChecklist input[type=checkbox]');
+    const groupChecks = document.querySelectorAll('#longitudinalGroupChecklist input[type=checkbox]');
+    const longitudinalProfile = {
+        columns: {
+            id: document.getElementById('longitudinalIdCol')?.value || 'id',
+            group: document.getElementById('longitudinalGroupCol')?.value || 'group',
+            time: document.getElementById('longitudinalTimeCol')?.value || 'time',
+            y: document.getElementById('longitudinalYCol')?.value || 'y'
+        },
+        source: longitudinalState.source || null,
+        ci: longitudinalState.ci,
+        controlIdx: longitudinalState.controlIdx,
+        legendFontSize: longitudinalState.legendFontSize,
+        axisStrokeWidth: longitudinalState.axisStrokeWidth,
+        lineWidth: longitudinalState.lineWidth,
+        ciLineWidth: longitudinalState.ciLineWidth,
+        axisRanges: {
+            time: { ...longitudinalState.axisRanges.time },
+            diff: { ...longitudinalState.axisRanges.diff }
+        },
+        sizes: {
+            time: { ...longitudinalState.sizes.time },
+            diff: { ...longitudinalState.sizes.diff }
+        },
+        offsets: {
+            time: { ...longitudinalState.offsets.time },
+            diff: { ...longitudinalState.offsets.diff }
+        },
+        colors: (longitudinalState.colors || []).slice(),
+        selectedTimes: Array.from(timeChecks)
+            .filter(cb => cb.checked)
+            .map(cb => parseInt(cb.dataset.index, 10))
+            .filter(n => !isNaN(n)),
+        selectedGroups: Array.from(groupChecks)
+            .filter(cb => cb.checked)
+            .map(cb => parseInt(cb.dataset.index, 10))
+            .filter(n => !isNaN(n))
+    };
+    if (longitudinalState.raw) {
+        longitudinalProfile.rawText = longitudinalState.raw;
+    }
+    if (Array.isArray(longitudinalState.draws) && longitudinalState.draws.length) {
+        longitudinalProfile.posterior = {
+            draws: longitudinalState.draws,
+            groups: (longitudinalState.groups || []).slice(),
+            times: (longitudinalState.times || []).slice()
+        };
+    }
     return {
         version: 1,
         mode,
         timeLabels: getTimeLabels(),
         survival: {
             xMax: document.getElementById('survivalXMax').value,
-            yPercent: document.getElementById('survivalYAxisPercent').checked
+            yPercent: document.getElementById('survivalYAxisPercent').checked,
+            xAuto: survivalXMaxEl ? survivalXMaxEl.dataset.auto !== 'false' : true
         },
         chartSize: {
             width: document.getElementById('chartWidthVal').value,
@@ -3557,7 +3634,8 @@ function collectProfile() {
             min: document.getElementById('yMinInput').value,
             max: document.getElementById('yMaxInput').value,
             ticks: document.getElementById('numTicks').value,
-            errorType: document.getElementById('errorType').value
+            errorType: document.getElementById('errorType').value,
+            autoMax: yMaxInputEl ? yMaxInputEl.dataset.auto !== 'false' : true
         },
         labels: {
             title: document.getElementById('chartTitleInput')?.value || '',
@@ -3577,6 +3655,18 @@ function collectProfile() {
             jitter: document.getElementById('jitter').value,
             barWidth: barWidthState
         },
+        legend: {
+            show: showLegendEl ? showLegendEl.checked : true,
+            fontSize: legendFontSizeEl ? legendFontSizeEl.value : '10',
+            state: legendStateEl ? legendStateEl.value : '95,10'
+        },
+        dragOffsets: {
+            chart: { x: chartOffsetX, y: chartOffsetY },
+            title: { x: titleOffsetX, y: titleOffsetY },
+            xLabel: { x: xAxisLabelOffsetX, y: xAxisLabelOffsetY },
+            yLabel: { x: yAxisLabelOffsetX, y: yAxisLabelOffsetY },
+            groupLabels: groupLabelOffsetY.slice()
+        },
         barOffsets: groupOffsetX.slice(),
         options: {
             showLines: document.getElementById('showLines').checked,
@@ -3589,7 +3679,12 @@ function collectProfile() {
             autoBrackets: document.getElementById('autoBrackets').checked,
             bracketOffset: document.getElementById('bracketOffset').value
         },
-        groups
+        exportPrefs: {
+            fileName: document.getElementById('exportFileName')?.value || '',
+            format: document.getElementById('exportFormat')?.value || 'svg'
+        },
+        groups,
+        longitudinal: longitudinalProfile
     };
 }
 
@@ -3601,6 +3696,11 @@ function applyActiveProfile() {
 
 function applyProfile(profile) {
     if (!profile || typeof profile !== 'object') return;
+    if (profile.mode) {
+        const plotModeEl = document.getElementById('plotMode');
+        if (plotModeEl) plotModeEl.value = profile.mode;
+        setPlotMode();
+    }
     if (profile.timeLabels !== undefined) {
         if (Array.isArray(profile.timeLabels)) {
             setTimeLabels(profile.timeLabels);
@@ -3611,7 +3711,17 @@ function applyProfile(profile) {
         updateTimeLabelsBulk();
     }
     if (profile.survival) {
-        document.getElementById('survivalXMax').value = profile.survival.xMax || '0';
+        const survivalXMax = document.getElementById('survivalXMax');
+        if (survivalXMax) {
+            survivalXMax.value = profile.survival.xMax || '0';
+            const auto = profile.survival.xAuto;
+            if (auto === true) survivalXMax.dataset.auto = 'true';
+            if (auto === false) survivalXMax.dataset.auto = 'false';
+            if (auto === undefined) {
+                const maxVal = parseFloat(profile.survival.xMax);
+                survivalXMax.dataset.auto = (!maxVal || maxVal <= 0) ? 'true' : 'false';
+            }
+        }
         document.getElementById('survivalYAxisPercent').checked = !!profile.survival.yPercent;
     }
     if (profile.chartSize) {
@@ -3624,6 +3734,16 @@ function applyProfile(profile) {
         document.getElementById('numTicks').value = profile.yAxis.ticks ?? '5';
         document.getElementById('errorType').value = profile.yAxis.errorType || 'se';
         setErrorType(profile.yAxis.errorType || 'se');
+        const yMaxInputEl = document.getElementById('yMaxInput');
+        if (yMaxInputEl) {
+            const auto = profile.yAxis.autoMax;
+            if (auto === true) yMaxInputEl.dataset.auto = 'true';
+            if (auto === false) yMaxInputEl.dataset.auto = 'false';
+            if (auto === undefined) {
+                const maxVal = parseFloat(profile.yAxis.max);
+                yMaxInputEl.dataset.auto = (!maxVal || maxVal <= 0) ? 'true' : 'false';
+            }
+        }
     }
     if (profile.labels) {
         if (profile.labels.title !== undefined) {
@@ -3657,7 +3777,7 @@ function applyProfile(profile) {
     }
     if (profile.options) {
         document.getElementById('showLines').checked = !!profile.options.showLines;
-        document.getElementById('showBars').checked = true; // force bars on
+        document.getElementById('showBars').checked = profile.options.showBars ?? true;
         document.getElementById('showSampleLines').checked = !!profile.options.showSampleLines;
         document.getElementById('showMean').checked = !!profile.options.showMean;
         document.getElementById('showMeanDots').checked = !!profile.options.showMeanDots;
@@ -3666,29 +3786,153 @@ function applyProfile(profile) {
         document.getElementById('autoBrackets').checked = !!profile.options.autoBrackets;
         document.getElementById('bracketOffset').value = profile.options.bracketOffset ?? '0';
     }
+    if (profile.exportPrefs) {
+        const fileInput = document.getElementById('exportFileName');
+        const fmtSelect = document.getElementById('exportFormat');
+        if (fileInput && profile.exportPrefs.fileName !== undefined) fileInput.value = profile.exportPrefs.fileName;
+        if (fmtSelect && profile.exportPrefs.format !== undefined) fmtSelect.value = profile.exportPrefs.format;
+    }
     if (Array.isArray(profile.groups)) {
-        const cards = Array.from(document.querySelectorAll('.group-card'));
-        profile.groups.forEach((g, idx) => {
-            const card = cards[idx];
-            if (card) {
-                const nameEl = card.querySelector('.group-name-input');
-                const colorEl = card.querySelector('.group-color-input');
-                const dataEl = card.querySelector('.group-data-input');
-                if (nameEl && g.name) nameEl.value = g.name;
-                if (colorEl && g.color) colorEl.value = g.color;
-                if (dataEl && g.data !== undefined) dataEl.value = g.data;
-                if (dataEl) handlePaste(card.id);
-            } else {
-                addNewGroup(g.name, g.color, g.data || '');
-            }
+        resetGroups();
+        profile.groups.forEach((g) => {
+            addNewGroup(g.name || '', g.color || '', g.data || '');
+            const card = document.querySelector('.group-card:last-child');
+            if (card) handlePaste(card.id);
         });
     }
     if (Array.isArray(profile.barOffsets)) {
         groupOffsetX = profile.barOffsets.map(v => parseFloat(v) || 0);
     }
+    if (Array.isArray(profile.groupLabelOffsets)) {
+        groupLabelOffsetY = profile.groupLabelOffsets.map(v => parseFloat(v) || 0);
+    }
+    if (profile.legend) {
+        const showLegendEl = document.getElementById('showLegend');
+        const legendFontSizeEl = document.getElementById('legendFontSize');
+        const legendStateEl = document.getElementById('legendState');
+        if (showLegendEl && profile.legend.show !== undefined) showLegendEl.checked = !!profile.legend.show;
+        if (legendFontSizeEl && profile.legend.fontSize !== undefined) legendFontSizeEl.value = profile.legend.fontSize;
+        if (legendStateEl && profile.legend.state !== undefined) legendStateEl.value = profile.legend.state;
+    }
+    if (profile.dragOffsets) {
+        if (profile.dragOffsets.title) {
+            titleOffsetX = parseFloat(profile.dragOffsets.title.x) || 0;
+            titleOffsetY = parseFloat(profile.dragOffsets.title.y) || 0;
+        }
+        if (profile.dragOffsets.xLabel) {
+            xAxisLabelOffsetX = parseFloat(profile.dragOffsets.xLabel.x) || 0;
+            xAxisLabelOffsetY = parseFloat(profile.dragOffsets.xLabel.y) || 0;
+        }
+        if (profile.dragOffsets.yLabel) {
+            yAxisLabelOffsetX = parseFloat(profile.dragOffsets.yLabel.x) || 0;
+            yAxisLabelOffsetY = parseFloat(profile.dragOffsets.yLabel.y) || 0;
+        }
+        if (profile.dragOffsets.chart) {
+            chartOffsetX = parseFloat(profile.dragOffsets.chart.x) || 0;
+            chartOffsetY = parseFloat(profile.dragOffsets.chart.y) || 0;
+        }
+        if (Array.isArray(profile.dragOffsets.groupLabels) && !Array.isArray(profile.groupLabelOffsets)) {
+            groupLabelOffsetY = profile.dragOffsets.groupLabels.map(v => parseFloat(v) || 0);
+        }
+    }
+    if (profile.longitudinal) {
+        const l = profile.longitudinal;
+        const idCol = document.getElementById('longitudinalIdCol');
+        const groupCol = document.getElementById('longitudinalGroupCol');
+        const timeCol = document.getElementById('longitudinalTimeCol');
+        const yCol = document.getElementById('longitudinalYCol');
+        if (l.columns) {
+            if (idCol && l.columns.id) idCol.value = l.columns.id;
+            if (groupCol && l.columns.group) groupCol.value = l.columns.group;
+            if (timeCol && l.columns.time) timeCol.value = l.columns.time;
+            if (yCol && l.columns.y) yCol.value = l.columns.y;
+        }
+        const hasPosterior = l.posterior && Array.isArray(l.posterior.draws) && l.posterior.draws.length;
+        const hasRaw = typeof l.rawText === 'string' && l.rawText.trim() !== '';
+        if (hasPosterior) {
+            loadLongitudinalPosteriorJson(l.posterior);
+        } else if (hasRaw) {
+            loadLongitudinalRawText(l.rawText);
+        }
+        if (typeof l.ci === 'number') {
+            longitudinalState.ci = l.ci;
+            const ciSlider = document.getElementById('longitudinalCiSlider');
+            if (ciSlider) ciSlider.value = l.ci;
+            longitudinalUpdateReadout();
+        }
+        if (l.legendFontSize !== undefined) {
+            longitudinalState.legendFontSize = parseFloat(l.legendFontSize) || longitudinalState.legendFontSize;
+            const el = document.getElementById('longitudinalLegendSize');
+            if (el) el.value = longitudinalState.legendFontSize;
+        }
+        if (l.axisStrokeWidth !== undefined) {
+            longitudinalState.axisStrokeWidth = parseFloat(l.axisStrokeWidth) || longitudinalState.axisStrokeWidth;
+            const el = document.getElementById('longitudinalAxisWidth');
+            if (el) el.value = longitudinalState.axisStrokeWidth;
+        }
+        if (l.lineWidth !== undefined) {
+            longitudinalState.lineWidth = parseFloat(l.lineWidth) || longitudinalState.lineWidth;
+            const el = document.getElementById('longitudinalLineWidth');
+            if (el) el.value = longitudinalState.lineWidth;
+        }
+        if (l.ciLineWidth !== undefined) {
+            longitudinalState.ciLineWidth = parseFloat(l.ciLineWidth) || longitudinalState.ciLineWidth;
+            const el = document.getElementById('longitudinalCiLineWidth');
+            if (el) el.value = longitudinalState.ciLineWidth;
+        }
+        if (l.axisRanges) {
+            longitudinalState.axisRanges.time = { ...longitudinalState.axisRanges.time, ...(l.axisRanges.time || {}) };
+            longitudinalState.axisRanges.diff = { ...longitudinalState.axisRanges.diff, ...(l.axisRanges.diff || {}) };
+        }
+        if (l.sizes) {
+            longitudinalState.sizes.time = { ...longitudinalState.sizes.time, ...(l.sizes.time || {}) };
+            longitudinalState.sizes.diff = { ...longitudinalState.sizes.diff, ...(l.sizes.diff || {}) };
+        }
+        if (l.offsets) {
+            longitudinalState.offsets.time = { ...longitudinalState.offsets.time, ...(l.offsets.time || {}) };
+            longitudinalState.offsets.diff = { ...longitudinalState.offsets.diff, ...(l.offsets.diff || {}) };
+        }
+        if (Array.isArray(l.colors) && l.colors.length) {
+            longitudinalState.colors = l.colors.slice();
+        }
+        if (typeof l.controlIdx === 'number') {
+            longitudinalState.controlIdx = l.controlIdx;
+            longitudinalSetupControls();
+            longitudinalBuildDiffCaches();
+        }
+        if (Array.isArray(l.selectedTimes)) {
+            const timeList = document.getElementById('longitudinalTimeChecklist');
+            if (timeList) {
+                timeList.querySelectorAll('input[type=checkbox]').forEach((cb) => {
+                    const idx = parseInt(cb.dataset.index, 10);
+                    cb.checked = l.selectedTimes.includes(idx);
+                });
+            }
+        }
+        if (Array.isArray(l.selectedGroups)) {
+            const groupList = document.getElementById('longitudinalGroupChecklist');
+            if (groupList) {
+                groupList.querySelectorAll('input[type=checkbox]').forEach((cb) => {
+                    const idx = parseInt(cb.dataset.index, 10);
+                    cb.checked = l.selectedGroups.includes(idx);
+                });
+            }
+        }
+        longitudinalSyncSizeInputs();
+        updateLongitudinalPlots();
+    }
     syncBarControlsUI();
     refreshAllGroupTimeGrids();
     updatePlot();
+    const svgWrapper = document.getElementById('svg-wrapper');
+    if (svgWrapper) {
+        svgWrapper.style.transform = `translate(${chartOffsetX}px, ${chartOffsetY}px)`;
+    }
+    const handlePosLeft = document.getElementById('handlePosLeft');
+    if (handlePosLeft) {
+        handlePosLeft.textContent = `L: ${Math.round(chartOffsetX)}`;
+    }
+    renderExplorerMenuGroups();
 }
 
 function downloadProfile() {
@@ -3754,9 +3998,17 @@ function resetProfile() {
         timeLabels: ['Day1', 'Day3', 'Day7'],
         survival: { xMax: '0', yPercent: false },
         chartSize: { width: '300', height: '200' },
-        yAxis: { min: '0', max: '0', ticks: '5', errorType: 'se' },
+        yAxis: { min: '0', max: '0', ticks: '5', errorType: 'se', autoMax: true },
         labels: { x: '', y: '', titleItalic: false, titleSize: '10', xOffset: '25', yOffset: '25', xFont: '10', yFont: '10' },
         style: { fontX: '10', fontY: '10', dotSize: '3', jitter: '8' },
+        legend: { show: true, fontSize: '10', state: '95,10' },
+        dragOffsets: {
+            chart: { x: 0, y: 0 },
+            title: { x: 0, y: 0 },
+            xLabel: { x: 0, y: 0 },
+            yLabel: { x: 0, y: 0 },
+            groupLabels: []
+        },
         options: {
             showLines: false,
             showBars: false,
@@ -3768,7 +4020,11 @@ function resetProfile() {
             autoBrackets: true,
             bracketOffset: '0'
         },
-        groups: []
+        exportPrefs: {
+            fileName: 'MultiGroup_Figure',
+            format: 'svg'
+        },
+        groups: null
     };
     applyProfile(defaultProfile);
     const cards = Array.from(document.querySelectorAll('.group-card'));
@@ -3788,6 +4044,16 @@ function resetProfile() {
     xAxisLabelOffsetY = 0;
     yAxisLabelOffsetX = 0;
     yAxisLabelOffsetY = 0;
+    chartOffsetX = 0;
+    chartOffsetY = 0;
+    const svgWrapper = document.getElementById('svg-wrapper');
+    if (svgWrapper) {
+        svgWrapper.style.transform = `translate(${chartOffsetX}px, ${chartOffsetY}px)`;
+    }
+    const handlePosLeft = document.getElementById('handlePosLeft');
+    if (handlePosLeft) {
+        handlePosLeft.textContent = `L: ${Math.round(chartOffsetX)}`;
+    }
     document.getElementById('legendState').value = '95,10';
     updatePlot();
 }
@@ -5230,52 +5496,381 @@ function loadSampleLongitudinalData() {
     longitudinalSetData(sample.draws, sample.groups, sample.times, 'example');
 }
 
-function longitudinalDownloadSvg(svgId, filename) {
-    const svg = document.getElementById(svgId);
-    if (!svg) return;
-    const serializer = new XMLSerializer();
-    const source = serializer.serializeToString(svg);
-    const blob = new Blob([source], { type: 'image/svg+xml;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+function sanitizeFileName(name) {
+    const cleaned = String(name || '').replace(/[<>:"/\\|?*\x00-\x1F]/g, '_').trim();
+    return cleaned || 'figure';
 }
 
-function longitudinalDownloadPng(svgId, filename) {
-    const svg = document.getElementById(svgId);
-    if (!svg) return;
+function getExportTypeMeta(format) {
+    const key = String(format || 'svg').toLowerCase();
+    if (key === 'png') {
+        return {
+            key: 'png',
+            ext: 'png',
+            mime: 'image/png',
+            typeOption: { description: 'PNG image', accept: { 'image/png': ['.png'] } }
+        };
+    }
+    if (key === 'pdf') {
+        return {
+            key: 'pdf',
+            ext: 'pdf',
+            mime: 'application/pdf',
+            typeOption: { description: 'PDF document', accept: { 'application/pdf': ['.pdf'] } }
+        };
+    }
+    if (key === 'tif' || key === 'tiff') {
+        return {
+            key: 'tif',
+            ext: 'tif',
+            mime: 'image/tiff',
+            typeOption: { description: 'TIFF image', accept: { 'image/tiff': ['.tif', '.tiff'] } }
+        };
+    }
+    return {
+        key: 'svg',
+        ext: 'svg',
+        mime: 'image/svg+xml',
+        typeOption: { description: 'SVG image', accept: { 'image/svg+xml': ['.svg'] } }
+    };
+}
+
+function ensureFileExtension(filename, ext) {
+    const safe = sanitizeFileName(filename);
+    const lower = safe.toLowerCase();
+    const suffix = `.${ext.toLowerCase()}`;
+    return lower.endsWith(suffix) ? safe : `${safe}.${ext}`;
+}
+
+function getExportBaseName(fallbackName = 'figure') {
+    const input = document.getElementById('exportFileName');
+    const fromInput = input ? sanitizeFileName(input.value) : '';
+    if (fromInput) return fromInput;
+    return sanitizeFileName(fallbackName);
+}
+
+function updateExportPathLabel() {
+    const label = document.getElementById('exportPathLabel');
+    if (!label) return;
+    label.textContent = exportDirectoryName ? `Path: ${exportDirectoryName}` : 'Path: Browser download';
+}
+
+async function chooseExportDirectory() {
+    if (!window.showDirectoryPicker) {
+        showToast('Folder picker unsupported. Using save dialog.');
+        return;
+    }
+    try {
+        const handle = await window.showDirectoryPicker();
+        exportDirectoryHandle = handle;
+        exportDirectoryName = handle && handle.name ? handle.name : 'Selected folder';
+        updateExportPathLabel();
+        showToast('Folder selected');
+    } catch (err) {
+        if (err && err.name !== 'AbortError') {
+            showToast('Failed to select folder');
+        }
+    }
+}
+
+function canvasToBlobAsync(canvas, mimeType, quality) {
+    return new Promise((resolve, reject) => {
+        canvas.toBlob((blob) => {
+            if (blob) {
+                resolve(blob);
+            } else {
+                reject(new Error('Failed to create image blob.'));
+            }
+        }, mimeType, quality);
+    });
+}
+
+function getSvgSize(svg) {
+    const viewBox = svg.getAttribute('viewBox');
+    if (viewBox) {
+        const parts = viewBox.trim().split(/\s+/).map(v => parseFloat(v));
+        if (parts.length === 4 && isFinite(parts[2]) && isFinite(parts[3]) && parts[2] > 0 && parts[3] > 0) {
+            return { width: Math.round(parts[2]), height: Math.round(parts[3]) };
+        }
+    }
+    const wAttr = parseFloat(svg.getAttribute('width'));
+    const hAttr = parseFloat(svg.getAttribute('height'));
+    if (isFinite(wAttr) && wAttr > 0 && isFinite(hAttr) && hAttr > 0) {
+        return { width: Math.round(wAttr), height: Math.round(hAttr) };
+    }
+    const rect = svg.getBoundingClientRect();
+    return {
+        width: Math.max(1, Math.round(rect.width || 900)),
+        height: Math.max(1, Math.round(rect.height || 360))
+    };
+}
+
+async function renderSvgToCanvas(svg) {
     const serializer = new XMLSerializer();
     const source = serializer.serializeToString(svg);
     const svgBlob = new Blob([source], { type: 'image/svg+xml;charset=utf-8' });
     const url = URL.createObjectURL(svgBlob);
-    const img = new Image();
-    img.onload = () => {
+    try {
+        const img = new Image();
+        await new Promise((resolve, reject) => {
+            img.onload = () => resolve();
+            img.onerror = () => reject(new Error('Failed to render SVG image.'));
+            img.src = url;
+        });
+        const size = getSvgSize(svg);
         const canvas = document.createElement('canvas');
-        canvas.width = 900;
-        canvas.height = 360;
+        canvas.width = size.width;
+        canvas.height = size.height;
         const ctx = canvas.getContext('2d');
-        ctx.fillStyle = '#ffffff';
+        if (!ctx) {
+            throw new Error('Canvas context is unavailable.');
+        }
+        const bg = getCssVar('--svg-bg') || '#ffffff';
+        ctx.fillStyle = bg;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.drawImage(img, 0, 0);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        return canvas;
+    } finally {
         URL.revokeObjectURL(url);
-        canvas.toBlob((blob) => {
-            if (!blob) return;
-            const pngUrl = URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = pngUrl;
-            link.download = filename;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            URL.revokeObjectURL(pngUrl);
-        }, 'image/png');
-    };
-    img.src = url;
+    }
+}
+
+function encodeTiffFromCanvas(canvas) {
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+        throw new Error('Canvas context is unavailable.');
+    }
+    const width = canvas.width;
+    const height = canvas.height;
+    const rgba = ctx.getImageData(0, 0, width, height).data;
+    const pixelData = new Uint8Array(width * height * 3);
+    for (let i = 0, j = 0; i < rgba.length; i += 4, j += 3) {
+        pixelData[j] = rgba[i];
+        pixelData[j + 1] = rgba[i + 1];
+        pixelData[j + 2] = rgba[i + 2];
+    }
+
+    const entryCount = 13;
+    const ifdOffset = 8;
+    const ifdByteSize = 2 + (entryCount * 12) + 4;
+    const bitsOffset = ifdOffset + ifdByteSize;
+    const xResOffset = bitsOffset + 6;
+    const yResOffset = xResOffset + 8;
+    const pixelOffset = yResOffset + 8;
+    const totalBytes = pixelOffset + pixelData.length;
+
+    const buffer = new ArrayBuffer(totalBytes);
+    const view = new DataView(buffer);
+    const out = new Uint8Array(buffer);
+
+    view.setUint8(0, 0x49);
+    view.setUint8(1, 0x49);
+    view.setUint16(2, 42, true);
+    view.setUint32(4, ifdOffset, true);
+    view.setUint16(ifdOffset, entryCount, true);
+
+    let ptr = ifdOffset + 2;
+    const TYPE_SHORT = 3;
+    const TYPE_LONG = 4;
+    const TYPE_RATIONAL = 5;
+
+    function writeEntry(tag, type, count, value) {
+        view.setUint16(ptr, tag, true);
+        view.setUint16(ptr + 2, type, true);
+        view.setUint32(ptr + 4, count, true);
+        if (type === TYPE_SHORT && count === 1) {
+            view.setUint16(ptr + 8, value, true);
+            view.setUint16(ptr + 10, 0, true);
+        } else {
+            view.setUint32(ptr + 8, value, true);
+        }
+        ptr += 12;
+    }
+
+    writeEntry(256, TYPE_LONG, 1, width);
+    writeEntry(257, TYPE_LONG, 1, height);
+    writeEntry(258, TYPE_SHORT, 3, bitsOffset);
+    writeEntry(259, TYPE_SHORT, 1, 1);
+    writeEntry(262, TYPE_SHORT, 1, 2);
+    writeEntry(273, TYPE_LONG, 1, pixelOffset);
+    writeEntry(277, TYPE_SHORT, 1, 3);
+    writeEntry(278, TYPE_LONG, 1, height);
+    writeEntry(279, TYPE_LONG, 1, pixelData.length);
+    writeEntry(282, TYPE_RATIONAL, 1, xResOffset);
+    writeEntry(283, TYPE_RATIONAL, 1, yResOffset);
+    writeEntry(284, TYPE_SHORT, 1, 1);
+    writeEntry(296, TYPE_SHORT, 1, 2);
+    view.setUint32(ptr, 0, true);
+
+    view.setUint16(bitsOffset, 8, true);
+    view.setUint16(bitsOffset + 2, 8, true);
+    view.setUint16(bitsOffset + 4, 8, true);
+    view.setUint32(xResOffset, 300, true);
+    view.setUint32(xResOffset + 4, 1, true);
+    view.setUint32(yResOffset, 300, true);
+    view.setUint32(yResOffset + 4, 1, true);
+    out.set(pixelData, pixelOffset);
+
+    return new Blob([buffer], { type: 'image/tiff' });
+}
+
+function asciiBytes(text) {
+    return new TextEncoder().encode(text);
+}
+
+async function buildPdfBlobFromCanvas(canvas) {
+    const jpegBlob = await canvasToBlobAsync(canvas, 'image/jpeg', 0.95);
+    const jpegBytes = new Uint8Array(await jpegBlob.arrayBuffer());
+    const widthPx = canvas.width;
+    const heightPx = canvas.height;
+    const widthPt = ((widthPx * 72) / 96).toFixed(2);
+    const heightPt = ((heightPx * 72) / 96).toFixed(2);
+    const content = `q\n${widthPt} 0 0 ${heightPt} 0 0 cm\n/Im0 Do\nQ\n`;
+
+    const obj1 = asciiBytes('1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n');
+    const obj2 = asciiBytes('2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n');
+    const obj3 = asciiBytes(`3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${widthPt} ${heightPt}] /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>\nendobj\n`);
+    const obj4Prefix = asciiBytes(`4 0 obj\n<< /Type /XObject /Subtype /Image /Width ${widthPx} /Height ${heightPx} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpegBytes.length} >>\nstream\n`);
+    const obj4Suffix = asciiBytes('\nendstream\nendobj\n');
+    const obj5 = asciiBytes(`5 0 obj\n<< /Length ${content.length} >>\nstream\n${content}endstream\nendobj\n`);
+
+    const header = new Uint8Array([...asciiBytes('%PDF-1.3\n'), 37, 255, 255, 255, 255, 10]);
+    const objectChunks = [
+        obj1,
+        obj2,
+        obj3,
+        obj4Prefix,
+        jpegBytes,
+        obj4Suffix,
+        obj5
+    ];
+
+    const objectOffsets = [0];
+    let cursor = header.length;
+    objectOffsets.push(cursor);
+    cursor += obj1.length;
+    objectOffsets.push(cursor);
+    cursor += obj2.length;
+    objectOffsets.push(cursor);
+    cursor += obj3.length;
+    objectOffsets.push(cursor);
+    cursor += obj4Prefix.length + jpegBytes.length + obj4Suffix.length;
+    objectOffsets.push(cursor);
+    cursor += obj5.length;
+
+    const xrefOffset = cursor;
+    let xref = 'xref\n0 6\n0000000000 65535 f \n';
+    for (let i = 1; i <= 5; i++) {
+        xref += `${String(objectOffsets[i]).padStart(10, '0')} 00000 n \n`;
+    }
+    const trailer = `trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+    return new Blob([header, ...objectChunks, asciiBytes(xref), asciiBytes(trailer)], { type: 'application/pdf' });
+}
+
+async function buildExportBlob(svg, format) {
+    const meta = getExportTypeMeta(format);
+    if (meta.key === 'svg') {
+        const source = new XMLSerializer().serializeToString(svg);
+        return { blob: new Blob([source], { type: 'image/svg+xml;charset=utf-8' }), meta };
+    }
+    const canvas = await renderSvgToCanvas(svg);
+    if (meta.key === 'png') {
+        const blob = await canvasToBlobAsync(canvas, 'image/png');
+        return { blob, meta };
+    }
+    if (meta.key === 'pdf') {
+        const blob = await buildPdfBlobFromCanvas(canvas);
+        return { blob, meta };
+    }
+    const blob = encodeTiffFromCanvas(canvas);
+    return { blob, meta };
+}
+
+async function saveBlobAs(blob, filename, meta) {
+    const suggestedName = ensureFileExtension(filename, meta.ext);
+
+    if (exportDirectoryHandle && typeof exportDirectoryHandle.getFileHandle === 'function') {
+        try {
+            const fileHandle = await exportDirectoryHandle.getFileHandle(suggestedName, { create: true });
+            const writable = await fileHandle.createWritable();
+            await writable.write(blob);
+            await writable.close();
+            showToast(`Saved: ${suggestedName}`);
+            return;
+        } catch (err) {
+            exportDirectoryHandle = null;
+            exportDirectoryName = '';
+            updateExportPathLabel();
+        }
+    }
+
+    if (window.showSaveFilePicker) {
+        try {
+            const handle = await window.showSaveFilePicker({
+                suggestedName,
+                types: [meta.typeOption]
+            });
+            const writable = await handle.createWritable();
+            await writable.write(blob);
+            await writable.close();
+            showToast(`Saved: ${suggestedName}`);
+            return;
+        } catch (err) {
+            if (err && err.name === 'AbortError') return;
+        }
+    }
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = suggestedName;
+    link.click();
+    URL.revokeObjectURL(url);
+    showToast(`Downloaded: ${suggestedName}`);
+}
+
+async function exportSvgElement(svg, format, filenameBase) {
+    if (!svg) {
+        showToast('No chart to export.');
+        return;
+    }
+    const base = sanitizeFileName(filenameBase || 'figure');
+    const result = await buildExportBlob(svg, format);
+    await saveBlobAs(result.blob, base, result.meta);
+}
+
+async function exportSvgById(svgId, format, filenameBase) {
+    const svg = document.getElementById(svgId);
+    if (!svg) {
+        showToast('No chart to export.');
+        return;
+    }
+    await exportSvgElement(svg, format, filenameBase);
+}
+
+async function saveCurrentFigure() {
+    try {
+        const svg = document.querySelector('#svg-container svg');
+        if (!svg) {
+            showToast('No chart to export.');
+            return;
+        }
+        const format = document.getElementById('exportFormat')?.value || 'svg';
+        const base = getExportBaseName('MultiGroup_Figure');
+        await exportSvgElement(svg, format, base);
+    } catch (err) {
+        alert(`Export failed: ${err.message || err}`);
+    }
+}
+
+async function longitudinalDownloadSvg(svgId, filename) {
+    const name = sanitizeFileName(String(filename || '').replace(/\.svg$/i, ''));
+    await exportSvgById(svgId, 'svg', name);
+}
+
+async function longitudinalDownloadPng(svgId, filename) {
+    const name = sanitizeFileName(String(filename || '').replace(/\.png$/i, ''));
+    await exportSvgById(svgId, 'png', name);
 }
 
 function longitudinalBuildColorControls() {
@@ -6128,13 +6723,13 @@ function showToast(message) {
     toastTimer = setTimeout(() => toast.classList.remove('show'), 1200);
 }
 
-function downloadSVG() {
-    const svg = document.getElementById('svg-container').innerHTML;
-    const blob = new Blob([svg], {type: "image/svg+xml"});
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = `MultiGroup_Figure_${new Date().getTime()}.svg`;
-    link.click();
+async function downloadSVG() {
+    const svg = document.querySelector('#svg-container svg');
+    if (!svg) {
+        showToast('No chart to export.');
+        return;
+    }
+    await exportSvgElement(svg, 'svg', getExportBaseName('MultiGroup_Figure'));
 }
 
 function setAutoYMax() {
