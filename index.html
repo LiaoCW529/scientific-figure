@@ -1064,12 +1064,17 @@
             <h3>2. Group Data</h3>
             <div style="display:flex; align-items:center; gap:8px; margin: 6px 0 12px;">
                 <label style="margin:0;">Graph Title</label>
-                <input type="text" id="chartTitleInput" class="text-input" placeholder="Title" oninput="syncChartTitle()" style="width:100px;">
+                <input type="text" id="chartTitleInput" class="text-input rich-label-input" placeholder="Title" oninput="syncChartTitle()" style="width:100px;">
                 <input type="number" id="titleFontSize" value="10" oninput="updatePlot()" style="width:50px;" aria-label="Title font size">
                 <label style="font-weight: normal; font-size: 0.75rem; color: var(--muted); display:flex; align-items:center; gap:4px; margin:0;">
                     <input type="checkbox" id="titleItalic" onchange="updatePlot()">
                     Italic
                 </label>
+            </div>
+            <div style="display:flex; gap:6px; align-items:center; margin:0 0 8px;">
+                <button type="button" class="btn-mini" id="richItalicBtn" style="width:auto;" title="Wrap selected text with [i][/i]"><i>I</i></button>
+                <button type="button" class="btn-mini" id="richSupBtn" style="width:auto;" title="Wrap selected text with [sup][/sup]">x<sup>2</sup></button>
+                <span style="font-size:0.72rem; color: var(--muted);">Select text in a label field, then click a button.</span>
             </div>
             <div style="font-size:0.72rem; color: var(--muted); margin:-6px 0 8px;">
                 Label format: `[i]italic[/i]` and `[sup]sup[/sup]` (works in title, axis labels, group names, legend, time labels).
@@ -1081,7 +1086,7 @@
         <div class="master-label-card" style="margin-top: 15px;">
             <label style="margin-bottom:6px;">Axis Labels</label>
             <div style="display:grid; gap:6px;">
-                <input type="text" id="xAxisLabel" class="text-input" placeholder="X-axis label" oninput="updatePlot()">
+                <input type="text" id="xAxisLabel" class="text-input rich-label-input" placeholder="X-axis label" oninput="updatePlot()">
                 <div style="display:flex; gap:6px; align-items:center;">
                     <span style="font-size:0.75rem; color: var(--muted);">X距離</span>
                     <button type="button" class="btn-mini" onclick="adjustLabelOffset('xLabelOffset', -2)">←</button>
@@ -1090,7 +1095,7 @@
                     <span style="font-size:0.75rem; color: var(--muted); margin-left:6px;">Font</span>
                     <input type="number" id="xAxisFontSize" value="10" oninput="updatePlot()" style="width:50px;">
                 </div>
-                <input type="text" id="yAxisLabel" class="text-input" placeholder="Y-axis label" oninput="updatePlot()">
+                <input type="text" id="yAxisLabel" class="text-input rich-label-input" placeholder="Y-axis label" oninput="updatePlot()">
                 <div style="display:flex; gap:6px; align-items:center;">
                     <span style="font-size:0.75rem; color: var(--muted);">Y距離</span>
                     <button type="button" class="btn-mini" onclick="adjustLabelOffset('yLabelOffset', -2)">←</button>
@@ -1526,6 +1531,9 @@ let stableZeroSince = null;
 let lastGrowAt = 0;
 const NEVER_SHRINK = true;
 let updateRafScheduled = false;
+let richLabelActiveInput = null;
+let richLabelSelectionStart = null;
+let richLabelSelectionEnd = null;
 
 function addNewGroup(name = "", color = "", data = "") {
     groupCount++;
@@ -1540,7 +1548,7 @@ function addNewGroup(name = "", color = "", data = "") {
     card.innerHTML = `
         <button class="btn-remove" onclick="removeGroup('${id}')">×</button>
         <div class="group-header">
-            <input type="text" class="group-name-input" value="${nameVal}" style="width:100px" oninput="updatePlot()">
+            <input type="text" class="group-name-input rich-label-input" value="${nameVal}" style="width:100px" oninput="updatePlot()">
             <input type="color" class="group-color-input" value="${colorVal}" oninput="updatePlot()">
             <button type="button" class="btn-mini" style="width:auto;" onclick="toggleGroupBulkEdit('${id}')">Bulk Edit</button>
         </div>
@@ -2915,6 +2923,29 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     updateExportPathLabel();
     updateExplorerTitleDisplay();
+    const richItalicBtn = document.getElementById('richItalicBtn');
+    const richSupBtn = document.getElementById('richSupBtn');
+    document.addEventListener('focusin', (e) => {
+        if (isRichLabelInput(e.target)) rememberRichLabelSelection(e.target);
+    });
+    document.addEventListener('keyup', (e) => {
+        if (isRichLabelInput(e.target)) rememberRichLabelSelection(e.target);
+    }, true);
+    document.addEventListener('mouseup', (e) => {
+        if (isRichLabelInput(e.target)) rememberRichLabelSelection(e.target);
+    }, true);
+    document.addEventListener('selectionchange', () => {
+        const active = document.activeElement;
+        if (isRichLabelInput(active)) rememberRichLabelSelection(active);
+    });
+    if (richItalicBtn) {
+        richItalicBtn.addEventListener('mousedown', (e) => e.preventDefault());
+        richItalicBtn.addEventListener('click', () => applyRichLabelTag('i'));
+    }
+    if (richSupBtn) {
+        richSupBtn.addEventListener('mousedown', (e) => e.preventDefault());
+        richSupBtn.addEventListener('click', () => applyRichLabelTag('sup'));
+    }
     const timeInput = document.getElementById('timePointsInput');
     if (timeInput) {
         const initial = timeInput.value.trim().split(/[\t\s]+/).filter(Boolean);
@@ -4178,6 +4209,7 @@ function renderTimeLabelInputs() {
         handle.textContent = '⠿';
         const input = document.createElement('input');
         input.type = 'text';
+        input.className = 'rich-label-input';
         input.draggable = false;
         input.value = label;
         input.addEventListener('mousedown', (e) => e.stopPropagation());
@@ -6124,6 +6156,68 @@ function updateExplorerTitleDisplay() {
     if (!displayEl) return;
     const title = getChartTitle();
     displayEl.textContent = title || '-';
+}
+
+function isRichLabelInput(el) {
+    return !!(el && el.classList && el.classList.contains('rich-label-input'));
+}
+
+function rememberRichLabelSelection(el) {
+    if (!isRichLabelInput(el)) return;
+    richLabelActiveInput = el;
+    if (typeof el.selectionStart === 'number' && typeof el.selectionEnd === 'number') {
+        richLabelSelectionStart = el.selectionStart;
+        richLabelSelectionEnd = el.selectionEnd;
+    }
+}
+
+function applyRichLabelTag(tag) {
+    const input = richLabelActiveInput;
+    if (!isRichLabelInput(input)) {
+        showToast('Select text in a label input first.');
+        return;
+    }
+    const open = `[${tag}]`;
+    const close = `[/${tag}]`;
+    const value = input.value || '';
+
+    let start = richLabelSelectionStart;
+    let end = richLabelSelectionEnd;
+    if (document.activeElement === input && typeof input.selectionStart === 'number') {
+        start = input.selectionStart;
+        end = input.selectionEnd;
+    }
+    if (!Number.isFinite(start) || !Number.isFinite(end)) {
+        start = value.length;
+        end = value.length;
+    }
+    if (start > end) {
+        const tmp = start;
+        start = end;
+        end = tmp;
+    }
+
+    const selected = value.slice(start, end);
+    let next = '';
+    let nextStart = 0;
+    let nextEnd = 0;
+    if (selected.length > 0) {
+        next = value.slice(0, start) + open + selected + close + value.slice(end);
+        nextStart = start + open.length;
+        nextEnd = nextStart + selected.length;
+    } else {
+        next = value.slice(0, start) + open + close + value.slice(end);
+        nextStart = start + open.length;
+        nextEnd = nextStart;
+    }
+
+    input.value = next;
+    input.focus();
+    if (typeof input.setSelectionRange === 'function') {
+        input.setSelectionRange(nextStart, nextEnd);
+    }
+    rememberRichLabelSelection(input);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
 function escapeSvgText(text) {
