@@ -1201,7 +1201,7 @@
                             <div class="control-item">
                                 <label for="dotSize">Dot Size</label>
                                 <div class="compact-row">
-                                    <input type="number" id="dotSize" min="1" max="15" value="3" oninput="updatePlot()">
+                                    <input type="number" id="dotSize" min="0.1" max="15" step="0.1" value="3.0" oninput="updatePlot()">
                                 </div>
                             </div>
                             <div class="control-item">
@@ -5573,6 +5573,16 @@ async function chooseExportDirectory() {
     }
 }
 
+function serializeSvgForExport(svg, forceTransparent = true) {
+    let source = new XMLSerializer().serializeToString(svg);
+    if (!forceTransparent) return source;
+    source = source.replace(/<rect class="svg-bg"[^>]*\/?>/gi, '');
+    source = source.replace(/<rect class="svg-bg"[^>]*>[\s\S]*?<\/rect>/gi, '');
+    source = source.replace(/background\s*:\s*[^;"]*;?/gi, '');
+    source = source.replace(/style="\s*"/gi, '');
+    return source;
+}
+
 function canvasToBlobAsync(canvas, mimeType, quality) {
     return new Promise((resolve, reject) => {
         canvas.toBlob((blob) => {
@@ -5606,8 +5616,7 @@ function getSvgSize(svg) {
 }
 
 async function renderSvgToCanvas(svg) {
-    const serializer = new XMLSerializer();
-    const source = serializer.serializeToString(svg);
+    const source = serializeSvgForExport(svg, true);
     const svgBlob = new Blob([source], { type: 'image/svg+xml;charset=utf-8' });
     const url = URL.createObjectURL(svgBlob);
     try {
@@ -5625,9 +5634,6 @@ async function renderSvgToCanvas(svg) {
         if (!ctx) {
             throw new Error('Canvas context is unavailable.');
         }
-        const bg = getCssVar('--svg-bg') || '#ffffff';
-        ctx.fillStyle = bg;
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
         return canvas;
     } finally {
@@ -5642,19 +5648,13 @@ function encodeTiffFromCanvas(canvas) {
     }
     const width = canvas.width;
     const height = canvas.height;
-    const rgba = ctx.getImageData(0, 0, width, height).data;
-    const pixelData = new Uint8Array(width * height * 3);
-    for (let i = 0, j = 0; i < rgba.length; i += 4, j += 3) {
-        pixelData[j] = rgba[i];
-        pixelData[j + 1] = rgba[i + 1];
-        pixelData[j + 2] = rgba[i + 2];
-    }
+    const pixelData = ctx.getImageData(0, 0, width, height).data;
 
-    const entryCount = 13;
+    const entryCount = 14;
     const ifdOffset = 8;
     const ifdByteSize = 2 + (entryCount * 12) + 4;
     const bitsOffset = ifdOffset + ifdByteSize;
-    const xResOffset = bitsOffset + 6;
+    const xResOffset = bitsOffset + 8;
     const yResOffset = xResOffset + 8;
     const pixelOffset = yResOffset + 8;
     const totalBytes = pixelOffset + pixelData.length;
@@ -5689,22 +5689,24 @@ function encodeTiffFromCanvas(canvas) {
 
     writeEntry(256, TYPE_LONG, 1, width);
     writeEntry(257, TYPE_LONG, 1, height);
-    writeEntry(258, TYPE_SHORT, 3, bitsOffset);
+    writeEntry(258, TYPE_SHORT, 4, bitsOffset);
     writeEntry(259, TYPE_SHORT, 1, 1);
     writeEntry(262, TYPE_SHORT, 1, 2);
     writeEntry(273, TYPE_LONG, 1, pixelOffset);
-    writeEntry(277, TYPE_SHORT, 1, 3);
+    writeEntry(277, TYPE_SHORT, 1, 4);
     writeEntry(278, TYPE_LONG, 1, height);
     writeEntry(279, TYPE_LONG, 1, pixelData.length);
     writeEntry(282, TYPE_RATIONAL, 1, xResOffset);
     writeEntry(283, TYPE_RATIONAL, 1, yResOffset);
     writeEntry(284, TYPE_SHORT, 1, 1);
+    writeEntry(338, TYPE_SHORT, 1, 2);
     writeEntry(296, TYPE_SHORT, 1, 2);
     view.setUint32(ptr, 0, true);
 
     view.setUint16(bitsOffset, 8, true);
     view.setUint16(bitsOffset + 2, 8, true);
     view.setUint16(bitsOffset + 4, 8, true);
+    view.setUint16(bitsOffset + 6, 8, true);
     view.setUint32(xResOffset, 300, true);
     view.setUint32(xResOffset + 4, 1, true);
     view.setUint32(yResOffset, 300, true);
@@ -5719,8 +5721,18 @@ function asciiBytes(text) {
 }
 
 async function buildPdfBlobFromCanvas(canvas) {
-    const jpegBlob = await canvasToBlobAsync(canvas, 'image/jpeg', 0.95);
-    const jpegBytes = new Uint8Array(await jpegBlob.arrayBuffer());
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Canvas context is unavailable.');
+    const rgba = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+    const rgbBytes = new Uint8Array(canvas.width * canvas.height * 3);
+    const alphaBytes = new Uint8Array(canvas.width * canvas.height);
+    for (let i = 0, j = 0, k = 0; i < rgba.length; i += 4, j += 3, k += 1) {
+        rgbBytes[j] = rgba[i];
+        rgbBytes[j + 1] = rgba[i + 1];
+        rgbBytes[j + 2] = rgba[i + 2];
+        alphaBytes[k] = rgba[i + 3];
+    }
+
     const widthPx = canvas.width;
     const heightPx = canvas.height;
     const widthPt = ((widthPx * 72) / 96).toFixed(2);
@@ -5729,10 +5741,12 @@ async function buildPdfBlobFromCanvas(canvas) {
 
     const obj1 = asciiBytes('1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n');
     const obj2 = asciiBytes('2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n');
-    const obj3 = asciiBytes(`3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${widthPt} ${heightPt}] /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>\nendobj\n`);
-    const obj4Prefix = asciiBytes(`4 0 obj\n<< /Type /XObject /Subtype /Image /Width ${widthPx} /Height ${heightPx} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpegBytes.length} >>\nstream\n`);
+    const obj3 = asciiBytes(`3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${widthPt} ${heightPt}] /Resources << /XObject << /Im0 4 0 R >> >> /Contents 6 0 R >>\nendobj\n`);
+    const obj4Prefix = asciiBytes(`4 0 obj\n<< /Type /XObject /Subtype /Image /Width ${widthPx} /Height ${heightPx} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Length ${rgbBytes.length} /SMask 5 0 R >>\nstream\n`);
     const obj4Suffix = asciiBytes('\nendstream\nendobj\n');
-    const obj5 = asciiBytes(`5 0 obj\n<< /Length ${content.length} >>\nstream\n${content}endstream\nendobj\n`);
+    const obj5Prefix = asciiBytes(`5 0 obj\n<< /Type /XObject /Subtype /Image /Width ${widthPx} /Height ${heightPx} /ColorSpace /DeviceGray /BitsPerComponent 8 /Length ${alphaBytes.length} >>\nstream\n`);
+    const obj5Suffix = asciiBytes('\nendstream\nendobj\n');
+    const obj6 = asciiBytes(`6 0 obj\n<< /Length ${content.length} >>\nstream\n${content}endstream\nendobj\n`);
 
     const header = new Uint8Array([...asciiBytes('%PDF-1.3\n'), 37, 255, 255, 255, 255, 10]);
     const objectChunks = [
@@ -5740,9 +5754,12 @@ async function buildPdfBlobFromCanvas(canvas) {
         obj2,
         obj3,
         obj4Prefix,
-        jpegBytes,
+        rgbBytes,
         obj4Suffix,
-        obj5
+        obj5Prefix,
+        alphaBytes,
+        obj5Suffix,
+        obj6
     ];
 
     const objectOffsets = [0];
@@ -5754,23 +5771,25 @@ async function buildPdfBlobFromCanvas(canvas) {
     objectOffsets.push(cursor);
     cursor += obj3.length;
     objectOffsets.push(cursor);
-    cursor += obj4Prefix.length + jpegBytes.length + obj4Suffix.length;
+    cursor += obj4Prefix.length + rgbBytes.length + obj4Suffix.length;
     objectOffsets.push(cursor);
-    cursor += obj5.length;
+    cursor += obj5Prefix.length + alphaBytes.length + obj5Suffix.length;
+    objectOffsets.push(cursor);
+    cursor += obj6.length;
 
     const xrefOffset = cursor;
-    let xref = 'xref\n0 6\n0000000000 65535 f \n';
-    for (let i = 1; i <= 5; i++) {
+    let xref = 'xref\n0 7\n0000000000 65535 f \n';
+    for (let i = 1; i <= 6; i++) {
         xref += `${String(objectOffsets[i]).padStart(10, '0')} 00000 n \n`;
     }
-    const trailer = `trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+    const trailer = `trailer\n<< /Size 7 /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
     return new Blob([header, ...objectChunks, asciiBytes(xref), asciiBytes(trailer)], { type: 'application/pdf' });
 }
 
 async function buildExportBlob(svg, format) {
     const meta = getExportTypeMeta(format);
     if (meta.key === 'svg') {
-        const source = new XMLSerializer().serializeToString(svg);
+        const source = serializeSvgForExport(svg, true);
         return { blob: new Blob([source], { type: 'image/svg+xml;charset=utf-8' }), meta };
     }
     const canvas = await renderSvgToCanvas(svg);
