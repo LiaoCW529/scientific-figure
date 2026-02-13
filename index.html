@@ -5615,6 +5615,14 @@ function getSvgSize(svg) {
     };
 }
 
+function getHighQualityExportScale(size) {
+    const targetLongEdge = 4096;
+    const maxScale = 8;
+    const longEdge = Math.max(1, size.width, size.height);
+    const scaled = Math.ceil(targetLongEdge / longEdge);
+    return Math.max(1, Math.min(maxScale, scaled));
+}
+
 async function renderSvgToCanvas(svg) {
     const source = serializeSvgForExport(svg, true);
     const svgBlob = new Blob([source], { type: 'image/svg+xml;charset=utf-8' });
@@ -5626,16 +5634,19 @@ async function renderSvgToCanvas(svg) {
             img.onerror = () => reject(new Error('Failed to render SVG image.'));
             img.src = url;
         });
-        const size = getSvgSize(svg);
+        const logicalSize = getSvgSize(svg);
+        const scale = getHighQualityExportScale(logicalSize);
         const canvas = document.createElement('canvas');
-        canvas.width = size.width;
-        canvas.height = size.height;
+        canvas.width = logicalSize.width * scale;
+        canvas.height = logicalSize.height * scale;
         const ctx = canvas.getContext('2d');
         if (!ctx) {
             throw new Error('Canvas context is unavailable.');
         }
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        return canvas;
+        return { canvas, logicalSize, scale };
     } finally {
         URL.revokeObjectURL(url);
     }
@@ -5707,9 +5718,9 @@ function encodeTiffFromCanvas(canvas) {
     view.setUint16(bitsOffset + 2, 8, true);
     view.setUint16(bitsOffset + 4, 8, true);
     view.setUint16(bitsOffset + 6, 8, true);
-    view.setUint32(xResOffset, 300, true);
+    view.setUint32(xResOffset, 600, true);
     view.setUint32(xResOffset + 4, 1, true);
-    view.setUint32(yResOffset, 300, true);
+    view.setUint32(yResOffset, 600, true);
     view.setUint32(yResOffset + 4, 1, true);
     out.set(pixelData, pixelOffset);
 
@@ -5720,7 +5731,7 @@ function asciiBytes(text) {
     return new TextEncoder().encode(text);
 }
 
-async function buildPdfBlobFromCanvas(canvas) {
+async function buildPdfBlobFromCanvas(canvas, logicalSize = null) {
     const ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('Canvas context is unavailable.');
     const rgba = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
@@ -5735,8 +5746,10 @@ async function buildPdfBlobFromCanvas(canvas) {
 
     const widthPx = canvas.width;
     const heightPx = canvas.height;
-    const widthPt = ((widthPx * 72) / 96).toFixed(2);
-    const heightPt = ((heightPx * 72) / 96).toFixed(2);
+    const logicalWidth = logicalSize && isFinite(logicalSize.width) ? logicalSize.width : widthPx;
+    const logicalHeight = logicalSize && isFinite(logicalSize.height) ? logicalSize.height : heightPx;
+    const widthPt = ((logicalWidth * 72) / 96).toFixed(2);
+    const heightPt = ((logicalHeight * 72) / 96).toFixed(2);
     const content = `q\n${widthPt} 0 0 ${heightPt} 0 0 cm\n/Im0 Do\nQ\n`;
 
     const obj1 = asciiBytes('1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n');
@@ -5792,16 +5805,16 @@ async function buildExportBlob(svg, format) {
         const source = serializeSvgForExport(svg, true);
         return { blob: new Blob([source], { type: 'image/svg+xml;charset=utf-8' }), meta };
     }
-    const canvas = await renderSvgToCanvas(svg);
+    const rendered = await renderSvgToCanvas(svg);
     if (meta.key === 'png') {
-        const blob = await canvasToBlobAsync(canvas, 'image/png');
+        const blob = await canvasToBlobAsync(rendered.canvas, 'image/png');
         return { blob, meta };
     }
     if (meta.key === 'pdf') {
-        const blob = await buildPdfBlobFromCanvas(canvas);
+        const blob = await buildPdfBlobFromCanvas(rendered.canvas, rendered.logicalSize);
         return { blob, meta };
     }
-    const blob = encodeTiffFromCanvas(canvas);
+    const blob = encodeTiffFromCanvas(rendered.canvas);
     return { blob, meta };
 }
 
