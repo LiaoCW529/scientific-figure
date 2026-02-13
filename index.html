@@ -5616,8 +5616,8 @@ function getSvgSize(svg) {
 }
 
 function getHighQualityExportScale(size) {
-    const targetLongEdge = 4096;
-    const maxScale = 8;
+    const targetLongEdge = 8192;
+    const maxScale = 12;
     const longEdge = Math.max(1, size.width, size.height);
     const scaled = Math.ceil(targetLongEdge / longEdge);
     return Math.max(1, Math.min(maxScale, scaled));
@@ -5718,9 +5718,9 @@ function encodeTiffFromCanvas(canvas) {
     view.setUint16(bitsOffset + 2, 8, true);
     view.setUint16(bitsOffset + 4, 8, true);
     view.setUint16(bitsOffset + 6, 8, true);
-    view.setUint32(xResOffset, 600, true);
+    view.setUint32(xResOffset, 1200, true);
     view.setUint32(xResOffset + 4, 1, true);
-    view.setUint32(yResOffset, 600, true);
+    view.setUint32(yResOffset, 1200, true);
     view.setUint32(yResOffset + 4, 1, true);
     out.set(pixelData, pixelOffset);
 
