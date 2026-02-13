@@ -5583,6 +5583,15 @@ function serializeSvgForExport(svg, forceTransparent = true) {
     return source;
 }
 
+function applySvgRenderSize(source, width, height) {
+    return source.replace(/<svg\b([^>]*)>/i, (full, attrs) => {
+        let clean = attrs
+            .replace(/\swidth="[^"]*"/i, '')
+            .replace(/\sheight="[^"]*"/i, '');
+        return `<svg${clean} width="${Math.max(1, Math.round(width))}" height="${Math.max(1, Math.round(height))}">`;
+    });
+}
+
 function canvasToBlobAsync(canvas, mimeType, quality) {
     return new Promise((resolve, reject) => {
         canvas.toBlob((blob) => {
@@ -5624,9 +5633,13 @@ function getHighQualityExportScale(size) {
 }
 
 async function renderSvgToCanvas(svg) {
-    const source = serializeSvgForExport(svg, true);
-    const svgBlob = new Blob([source], { type: 'image/svg+xml;charset=utf-8' });
-    const url = URL.createObjectURL(svgBlob);
+    const logicalSize = getSvgSize(svg);
+    const scale = getHighQualityExportScale(logicalSize);
+    const renderWidth = logicalSize.width * scale;
+    const renderHeight = logicalSize.height * scale;
+    let source = serializeSvgForExport(svg, true);
+    source = applySvgRenderSize(source, renderWidth, renderHeight);
+    const url = URL.createObjectURL(new Blob([source], { type: 'image/svg+xml;charset=utf-8' }));
     try {
         const img = new Image();
         await new Promise((resolve, reject) => {
@@ -5634,11 +5647,9 @@ async function renderSvgToCanvas(svg) {
             img.onerror = () => reject(new Error('Failed to render SVG image.'));
             img.src = url;
         });
-        const logicalSize = getSvgSize(svg);
-        const scale = getHighQualityExportScale(logicalSize);
         const canvas = document.createElement('canvas');
-        canvas.width = logicalSize.width * scale;
-        canvas.height = logicalSize.height * scale;
+        canvas.width = renderWidth;
+        canvas.height = renderHeight;
         const ctx = canvas.getContext('2d');
         if (!ctx) {
             throw new Error('Canvas context is unavailable.');
