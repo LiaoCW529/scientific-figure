@@ -1199,6 +1199,10 @@
                             <label>Bracket Offset <span id="bracketOffsetVal" style="font-weight: normal; color: var(--muted);">center</span></label>
                             <input type="range" id="bracketOffset" min="-60" max="120" value="0" oninput="updatePlot()">
                         </div>
+                        <div class="control-item">
+                            <label>Bracket Gap <span id="bracketGapVal" style="font-weight: normal; color: var(--muted);">22px</span></label>
+                            <input type="range" id="bracketGap" min="8" max="80" step="1" value="22" oninput="updatePlot()">
+                        </div>
                     </div>
                     <div class="panel legend-panel">
                         <div class="card-grid-2">
@@ -3711,7 +3715,8 @@ function collectProfile() {
             showErrorBars: document.getElementById('showErrorBars').checked,
             showPostHoc: document.getElementById('showPostHoc').checked,
             autoBrackets: document.getElementById('autoBrackets').checked,
-            bracketOffset: document.getElementById('bracketOffset').value
+            bracketOffset: document.getElementById('bracketOffset').value,
+            bracketGap: document.getElementById('bracketGap')?.value ?? '22'
         },
         exportPrefs: {
             fileName: document.getElementById('exportFileName')?.value || '',
@@ -3819,6 +3824,8 @@ function applyProfile(profile) {
         document.getElementById('showPostHoc').checked = !!profile.options.showPostHoc;
         document.getElementById('autoBrackets').checked = !!profile.options.autoBrackets;
         document.getElementById('bracketOffset').value = profile.options.bracketOffset ?? '0';
+        const gapEl = document.getElementById('bracketGap');
+        if (gapEl) gapEl.value = profile.options.bracketGap ?? '22';
     }
     if (profile.exportPrefs) {
         const fileInput = document.getElementById('exportFileName');
@@ -4052,7 +4059,8 @@ function resetProfile() {
             showErrorBars: true,
             showPostHoc: false,
             autoBrackets: true,
-            bracketOffset: '0'
+            bracketOffset: '0',
+            bracketGap: '22'
         },
         exportPrefs: {
             fileName: 'MultiGroup_Figure',
@@ -6342,6 +6350,7 @@ function updatePlot(reflowPass = 0) {
     const showErrorBars = document.getElementById('showErrorBars').checked;
     const errorType = document.getElementById('errorType')?.value || 'se';
     const bracketOffset = parseFloat(document.getElementById('bracketOffset').value);
+    const bracketGap = Math.max(0, parseFloat(document.getElementById('bracketGap')?.value ?? '22') || 22);
     const lineOptionsBody = document.getElementById('lineOptionsBody');
     if (lineOptionsBody) {
         lineOptionsBody.classList.toggle('panel-disabled', !showLines);
@@ -6353,6 +6362,10 @@ function updatePlot(reflowPass = 0) {
         } else {
             bracketOffsetLabel.textContent = `${bracketOffset > 0 ? '+' : ''}${bracketOffset}px`;
         }
+    }
+    const bracketGapLabel = document.getElementById('bracketGapVal');
+    if (bracketGapLabel) {
+        bracketGapLabel.textContent = `${Math.round(bracketGap)}px`;
     }
     const xAxisLabel = document.getElementById('xAxisLabel').value.trim();
     const yAxisLabel = document.getElementById('yAxisLabel').value.trim();
@@ -6653,7 +6666,8 @@ function updatePlot(reflowPass = 0) {
 
     // 有意差マEクがある場合、強制皁E上限を押し上げめE
     if (autoBrackets && maxBracketLayers > 0 && isAutoY) {
-        const extraFactor = Math.min(0.1, 0.05 * maxBracketLayers);
+        const gapFactor = Math.max(0.4, bracketGap / 22);
+        const extraFactor = Math.min(0.4, 0.05 * maxBracketLayers * gapFactor);
         const expandedYMax = niceCeil(rawMax * (1 + extraFactor));
         yMax = Math.max(baseYMax, expandedYMax);
     }
@@ -6906,7 +6920,7 @@ function updatePlot(reflowPass = 0) {
                                 ? getCompCenter(i + 1)
                                 : getTimeCenter(tIdx, i + 1, groupSpace);
                             svgItems.push(drawBracket(ctrlX, targetX, bracketY, getStars(res.p), fsX));
-                            bracketY -= 22;
+                            bracketY -= bracketGap;
                         }
                     });
                 }
