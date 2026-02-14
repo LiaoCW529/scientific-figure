@@ -1202,6 +1202,12 @@
                         <div class="control-item">
                             <label>Bracket Gap <span id="bracketGapVal" style="font-weight: normal; color: var(--muted);">22px</span></label>
                             <input type="range" id="bracketGap" min="8" max="80" step="1" value="22" oninput="updatePlot()">
+                            <div style="display:flex; align-items:center; gap:6px; margin-top:4px;">
+                                <span style="font-size:0.72rem; color: var(--muted);">px</span>
+                                <input type="number" id="bracketGapInput" min="8" max="80" step="1" value="22"
+                                    oninput="const s=document.getElementById('bracketGap'); if(s){s.value=this.value;} updatePlot();"
+                                    style="width:72px;">
+                            </div>
                         </div>
                     </div>
                     <div class="panel legend-panel">
@@ -3716,7 +3722,9 @@ function collectProfile() {
             showPostHoc: document.getElementById('showPostHoc').checked,
             autoBrackets: document.getElementById('autoBrackets').checked,
             bracketOffset: document.getElementById('bracketOffset').value,
-            bracketGap: document.getElementById('bracketGap')?.value ?? '22'
+            bracketGap: document.getElementById('bracketGapInput')?.value
+                ?? document.getElementById('bracketGap')?.value
+                ?? '22'
         },
         exportPrefs: {
             fileName: document.getElementById('exportFileName')?.value || '',
@@ -3825,7 +3833,10 @@ function applyProfile(profile) {
         document.getElementById('autoBrackets').checked = !!profile.options.autoBrackets;
         document.getElementById('bracketOffset').value = profile.options.bracketOffset ?? '0';
         const gapEl = document.getElementById('bracketGap');
-        if (gapEl) gapEl.value = profile.options.bracketGap ?? '22';
+        const gapInputEl = document.getElementById('bracketGapInput');
+        const gapValue = profile.options.bracketGap ?? '22';
+        if (gapEl) gapEl.value = gapValue;
+        if (gapInputEl) gapInputEl.value = gapValue;
     }
     if (profile.exportPrefs) {
         const fileInput = document.getElementById('exportFileName');
@@ -6350,7 +6361,10 @@ function updatePlot(reflowPass = 0) {
     const showErrorBars = document.getElementById('showErrorBars').checked;
     const errorType = document.getElementById('errorType')?.value || 'se';
     const bracketOffset = parseFloat(document.getElementById('bracketOffset').value);
-    const bracketGap = Math.max(0, parseFloat(document.getElementById('bracketGap')?.value ?? '22') || 22);
+    const bracketGapRaw = document.getElementById('bracketGapInput')?.value
+        ?? document.getElementById('bracketGap')?.value
+        ?? '22';
+    const bracketGap = Math.max(0, parseFloat(bracketGapRaw) || 22);
     const lineOptionsBody = document.getElementById('lineOptionsBody');
     if (lineOptionsBody) {
         lineOptionsBody.classList.toggle('panel-disabled', !showLines);
@@ -6364,6 +6378,10 @@ function updatePlot(reflowPass = 0) {
         }
     }
     const bracketGapLabel = document.getElementById('bracketGapVal');
+    const bracketGapInput = document.getElementById('bracketGapInput');
+    const bracketGapSlider = document.getElementById('bracketGap');
+    if (bracketGapInput) bracketGapInput.value = String(Math.round(bracketGap));
+    if (bracketGapSlider) bracketGapSlider.value = String(Math.round(bracketGap));
     if (bracketGapLabel) {
         bracketGapLabel.textContent = `${Math.round(bracketGap)}px`;
     }
