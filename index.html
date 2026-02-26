@@ -1546,6 +1546,8 @@ let draggingAxisLabelStartX = 0;
 let draggingAxisLabelStartY = 0;
 let draggingAxisLabelStartOffsetX = 0;
 let draggingAxisLabelStartOffsetY = 0;
+let autoTopPad = 0;
+let targetTopPad = 0;
 let autoBottomPad = 0;
 let targetBottomPad = 0;
 let stableZeroSince = null;
@@ -6218,7 +6220,12 @@ function displayStats(timeLabels, groupConfigs) {
 }
 
 function scheduleUpdatePlot(resetPad = false) {
-    if (resetPad) autoBottomPad = 0;
+    if (resetPad) {
+        autoTopPad = 0;
+        targetTopPad = 0;
+        autoBottomPad = 0;
+        targetBottomPad = 0;
+    }
     if (updateRafScheduled) return;
     updateRafScheduled = true;
     requestAnimationFrame(() => {
@@ -6502,31 +6509,47 @@ function updatePlot(reflowPass = 0) {
     }
     function schedulePadCheck() {
         if (reflowPass >= 1) return;
-        const SAFETY = 20;
+        const BOTTOM_SAFETY = 20;
+        const TOP_SAFETY = 14;
         const measure = () => {
             const svgRoot = document.querySelector('#svg-container svg');
             if (!svgRoot) return;
             const labels = Array.from(svgRoot.querySelectorAll('.x-axis-label'));
+            const sigElems = Array.from(svgRoot.querySelectorAll('.sig-bracket, .sig-star'));
             const svgRect = svgRoot.getBoundingClientRect();
             if (!svgRect.height) return;
             const overflowPx = Math.max(...(labels.length ? labels.map(el => {
                 const r = el.getBoundingClientRect();
                 return r.bottom - svgRect.bottom;
             }) : [0]), 0);
+            const topOverflowPx = Math.max(...(sigElems.length ? sigElems.map(el => {
+                const r = el.getBoundingClientRect();
+                return svgRect.top - r.top;
+            }) : [0]), 0);
             const svgUnitsPerPxY = height / svgRect.height;
             const overflowSvg = Math.ceil(Math.max(0, overflowPx) * svgUnitsPerPxY);
+            const topOverflowSvg = Math.ceil(Math.max(0, topOverflowPx) * svgUnitsPerPxY);
             const now = performance.now();
-            targetBottomPad = Math.max(0, overflowSvg + SAFETY);
+            targetBottomPad = Math.max(0, overflowSvg + BOTTOM_SAFETY);
+            targetTopPad = Math.max(0, topOverflowSvg + TOP_SAFETY);
 
+            let grew = false;
             if (targetBottomPad > autoBottomPad) {
                 autoBottomPad = targetBottomPad;
+                grew = true;
+            }
+            if (targetTopPad > autoTopPad) {
+                autoTopPad = targetTopPad;
+                grew = true;
+            }
+            if (grew) {
                 lastGrowAt = now;
                 stableZeroSince = null;
                 updatePlot(reflowPass + 1);
                 return;
             }
 
-            if (overflowSvg > 0) {
+            if (overflowSvg > 0 || topOverflowSvg > 0) {
                 stableZeroSince = null;
                 return;
             }
@@ -6767,7 +6790,7 @@ function updatePlot(reflowPass = 0) {
         if (yMinInputEl) yMinInputEl.value = yMin;
     }
 
-    const pL = fsY * 4.6, pB = fsX * 3 + 6 + autoBottomPad, pT = 30 + titlePad, pR = 30;
+    const pL = fsY * 4.6, pB = fsX * 3 + 6 + autoBottomPad, pT = 30 + titlePad + autoTopPad, pR = 30;
     const graphW = width - pL - pR, graphH = height - pB - pT;
     const yScale = (v) => height - pB - ((v - yMin) / (yMax - yMin) * graphH);
     plotMetrics = { pL, pT, graphW, graphH, width, height };
@@ -6994,7 +7017,7 @@ function updatePlot(reflowPass = 0) {
                             ? getCompCenter(1)
                             : baseCenter;
                         const starY = yScale(s2.mean + err2) - 8 - bracketOffset;
-                        svgItems.push(`<text x="${targetX}" y="${starY}" text-anchor="middle" font-size="${fsX * 1.2}" font-family="Arial" font-weight="bold" fill="${axisColor}">${sigDecision.stars}</text>`);
+                        svgItems.push(`<text class="sig-star" x="${targetX}" y="${starY}" text-anchor="middle" font-size="${fsX * 1.2}" font-family="Arial" font-weight="bold" fill="${axisColor}">${sigDecision.stars}</text>`);
                     } else {
                         const targetX = isCompMode
                             ? getCompCenter(1)
