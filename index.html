@@ -1197,14 +1197,22 @@
                             <label style="font-weight: normal;"><input type="checkbox" id="autoBrackets" onchange="updatePlot()" checked> Auto Brackets (*)</label>
                         </div>
                         <div class="control-item">
-                            <label for="twoGroupSigSource">2-group star source</label>
+                            <label for="twoGroupSigSource">Significance source</label>
                             <select id="twoGroupSigSource" onchange="updatePlot()">
-                                <option value="either" selected>Either (Welch or Brunner-Munzel)</option>
-                                <option value="welch">Welch t-test</option>
-                                <option value="brunner">Brunner-Munzel</option>
+                                <option value="auto" selected>Auto (2-group: Either / 3+ groups: Dunnett)</option>
+                                <optgroup label="2-group">
+                                    <option value="either">Either (Welch or Brunner-Munzel)</option>
+                                    <option value="welch">Welch t-test</option>
+                                    <option value="brunner">Brunner-Munzel</option>
+                                </optgroup>
+                                <optgroup label="3+ groups">
+                                    <option value="anova">ANOVA (global)</option>
+                                    <option value="dunnett">Dunnett (post-hoc)</option>
+                                    <option value="anova_dunnett">ANOVA + Dunnett (both)</option>
+                                </optgroup>
                             </select>
                             <div style="font-size:0.72rem; color: var(--muted); margin-top:4px;">
-                                Controls 2-group significance and stars. Rule: * <0.05, ** <0.01, *** <0.001, **** <0.0001.
+                                Choose which statistical result controls stars (* <0.05, ** <0.01, *** <0.001, **** <0.0001).
                             </div>
                         </div>
                         <div class="control-item">
@@ -3816,7 +3824,7 @@ function collectProfile() {
             showErrorBars: document.getElementById('showErrorBars').checked,
             showPostHoc: document.getElementById('showPostHoc').checked,
             autoBrackets: document.getElementById('autoBrackets').checked,
-            twoGroupSigSource: document.getElementById('twoGroupSigSource')?.value || 'either',
+            twoGroupSigSource: document.getElementById('twoGroupSigSource')?.value || 'auto',
             bracketOffset: document.getElementById('bracketOffset').value,
             bracketGap: document.getElementById('bracketGapInput')?.value
                 ?? document.getElementById('bracketGap')?.value
@@ -3929,8 +3937,8 @@ function applyProfile(profile) {
         document.getElementById('autoBrackets').checked = !!profile.options.autoBrackets;
         const twoGroupSigSourceEl = document.getElementById('twoGroupSigSource');
         if (twoGroupSigSourceEl) {
-            const sourceValue = profile.options.twoGroupSigSource ?? 'either';
-            twoGroupSigSourceEl.value = ['either', 'welch', 'brunner'].includes(sourceValue) ? sourceValue : 'either';
+            const sourceValue = profile.options.twoGroupSigSource ?? 'auto';
+            twoGroupSigSourceEl.value = ['auto', 'either', 'welch', 'brunner', 'anova', 'dunnett', 'anova_dunnett'].includes(sourceValue) ? sourceValue : 'auto';
         }
         document.getElementById('bracketOffset').value = profile.options.bracketOffset ?? '0';
         const gapEl = document.getElementById('bracketGap');
@@ -4171,7 +4179,7 @@ function resetProfile() {
             showErrorBars: true,
             showPostHoc: false,
             autoBrackets: true,
-            twoGroupSigSource: 'either',
+            twoGroupSigSource: 'auto',
             bracketOffset: '0',
             bracketGap: '22'
         },
@@ -4863,23 +4871,41 @@ function getStars(p) {
     return "";
 }
 
+function getSigSourceLabel(source) {
+    const labels = {
+        auto: "Auto",
+        either: "Either (Welch/Brunner-Munzel)",
+        welch: "Welch t-test",
+        brunner: "Brunner-Munzel",
+        anova: "ANOVA",
+        dunnett: "Dunnett",
+        anova_dunnett: "ANOVA + Dunnett"
+    };
+    return labels[source] || source;
+}
+
 function getTwoGroupSigSource() {
     const value = document.getElementById('twoGroupSigSource')?.value;
-    return (value === 'either' || value === 'welch' || value === 'brunner') ? value : 'either';
+    const allowed = ['auto', 'either', 'welch', 'brunner', 'anova', 'dunnett', 'anova_dunnett'];
+    return allowed.includes(value) ? value : 'auto';
+}
+
+function resolveSigSourceForGroupCount(groupCount, source = getTwoGroupSigSource()) {
+    if (groupCount <= 2) {
+        if (source === 'auto') return 'either';
+        return (source === 'either' || source === 'welch' || source === 'brunner') ? source : 'either';
+    }
+    if (source === 'auto') return 'dunnett';
+    return (source === 'anova' || source === 'dunnett' || source === 'anova_dunnett') ? source : 'anova_dunnett';
 }
 
 function isValidPValue(p) {
     return Number.isFinite(p) && p >= 0 && p <= 1;
 }
 
-function getTwoGroupSigDecision(welchRes, bmRes, source = getTwoGroupSigSource()) {
+function getTwoGroupSigDecision(welchRes, bmRes, source = resolveSigSourceForGroupCount(2, getTwoGroupSigSource())) {
     const welchP = welchRes && isValidPValue(welchRes.p) ? welchRes.p : null;
     const brunnerP = bmRes && isValidPValue(bmRes.p) ? bmRes.p : null;
-    const labels = {
-        welch: "Welch t-test",
-        brunner: "Brunner-Munzel",
-        either: "Either"
-    };
     let p = null;
     let used = source;
 
@@ -4902,12 +4928,57 @@ function getTwoGroupSigDecision(welchRes, bmRes, source = getTwoGroupSigSource()
 
     return {
         source,
-        sourceLabel: labels[source],
+        sourceLabel: getSigSourceLabel(source),
         used,
-        usedLabel: labels[used] || labels[source],
+        usedLabel: getSigSourceLabel(used),
         p,
         isSig: p !== null && p < 0.05,
         stars: p !== null ? getStars(p) : ""
+    };
+}
+
+function getMultiGroupSigDecision(anovaP, dunnettRes, filteredGroups = [], source = resolveSigSourceForGroupCount(3, getTwoGroupSigSource())) {
+    const validAnovaP = isValidPValue(anovaP) ? anovaP : null;
+    const rows = (dunnettRes || []).map((res, idx) => {
+        const p = isValidPValue(res?.p) ? res.p : null;
+        const label = filteredGroups[idx + 1]?.name || res?.targetName || `Group ${idx + 2}`;
+        return { idx, label, p };
+    });
+
+    let decisionRows = [];
+    if (source === 'anova') {
+        const isSig = validAnovaP !== null && validAnovaP < 0.05;
+        const stars = isSig ? getStars(validAnovaP) : '';
+        decisionRows = rows.map((r) => ({ ...r, isSig, stars }));
+    } else if (source === 'dunnett') {
+        decisionRows = rows.map((r) => {
+            const isSig = r.p !== null && r.p < 0.05;
+            return { ...r, isSig, stars: isSig ? getStars(r.p) : '' };
+        });
+    } else {
+        const anovaSig = validAnovaP !== null && validAnovaP < 0.05;
+        decisionRows = rows.map((r) => {
+            const isSig = anovaSig && r.p !== null && r.p < 0.05;
+            return { ...r, isSig, stars: isSig ? getStars(r.p) : '' };
+        });
+    }
+
+    const sigRows = decisionRows.filter(r => r.isSig);
+    const representative = sigRows.length
+        ? sigRows.slice().sort((a, b) => (a.p ?? 1) - (b.p ?? 1))[0]
+        : null;
+    const statusText = sigRows.length
+        ? sigRows.map(r => `${r.label}: ${r.stars || '*'}`).join('; ')
+        : 'NS';
+
+    return {
+        source,
+        sourceLabel: getSigSourceLabel(source),
+        rows: decisionRows,
+        isSig: sigRows.length > 0,
+        p: representative ? representative.p : validAnovaP,
+        stars: representative ? representative.stars : '',
+        statusText
     };
 }
 
@@ -6211,7 +6282,7 @@ function logRankTestTwoGroups(timesA, timesB) {
 function displayStats(timeLabels, groupConfigs) {
     const nGroups = groupConfigs.length;
     const mainHeader = nGroups === 2 ? "Welch's t (p)" : "ANOVA (p)";
-    const twoGroupSigSource = getTwoGroupSigSource();
+    const selectedSigSource = getTwoGroupSigSource();
     const formatP = (p) => {
         if (p === null || p === undefined || Number.isNaN(p)) return "-";
         if (p < 0.0001) return "<0.0001";
@@ -6246,16 +6317,17 @@ function displayStats(timeLabels, groupConfigs) {
         const filteredGroups = groupConfigs.filter(g => (g.data[tIdx] || []).length > 1);
         const groupsData = filteredGroups.map(g => g.data[tIdx]);
         if (groupsData.length < 2) return;
+        const sigSource = resolveSigSourceForGroupCount(groupsData.length, selectedSigSource);
 
         let pMain = 1;
         let postHocHtml = "-";
         let status = "NS";
         const detailParts = [];
 
-        if (nGroups === 2) {
+        if (groupsData.length === 2) {
             const res = welchTTest(groupsData[0], groupsData[1]);
             const bm = brunnerMunzel(groupsData[0], groupsData[1]);
-            const sigDecision = getTwoGroupSigDecision(res, bm, twoGroupSigSource);
+            const sigDecision = getTwoGroupSigDecision(res, bm, sigSource);
             pMain = res ? res.p : 1;
             postHocHtml = bm ? formatP(bm.p) : "-";
             status = sigDecision.isSig ? `${sigDecision.stars || "*"} (${sigDecision.usedLabel})` : "NS";
@@ -6273,14 +6345,17 @@ function displayStats(timeLabels, groupConfigs) {
             if (aRes) {
                 pMain = fDistributionP(aRes.f, aRes.df1, aRes.df2);
                 const dunnettRes = runDunnett(groupsData, aRes.msWithin, aRes.df2);
-                postHocHtml = dunnettRes.map((r, idx) =>
-                    `<div style="color:${r.isSig ? 'var(--danger)' : 'var(--muted)'}">${filteredGroups[idx + 1].name}: p=${formatP(r.p)}</div>`
-                ).join("");
-                status = pMain < 0.05 ? "Significant" : "NS";
+                const sigDecision = getMultiGroupSigDecision(pMain, dunnettRes, filteredGroups, sigSource);
+                postHocHtml = sigDecision.rows.map((r, idx) => {
+                    const pText = formatP(dunnettRes[idx]?.p);
+                    return `<div style="color:${r.isSig ? 'var(--danger)' : 'var(--muted)'}">${r.label}: p=${pText}${r.stars ? ` (${r.stars})` : ''}</div>`;
+                }).join("");
+                status = sigDecision.isSig ? `${sigDecision.statusText} (${sigDecision.sourceLabel})` : 'NS';
                 detailParts.push(`ANOVA F=${aRes.f.toFixed(3)}, df1=${aRes.df1}, df2=${aRes.df2}, p=${formatPPreciseWithDecimal(pMain)}`);
                 dunnettRes.forEach((r, idx) => {
                     detailParts.push(`Dunnett vs Ctrl -> ${filteredGroups[idx + 1].name}: p=${formatPPreciseWithDecimal(r.p)}`);
                 });
+                detailParts.push(`Displayed significance source=${sigDecision.sourceLabel}; status=${sigDecision.statusText}`);
             }
         }
 
@@ -6513,7 +6588,7 @@ function updatePlot(reflowPass = 0) {
     const isAutoY = isAutoFlag && (!yMaxManual || yMaxManual <= 0 || yMaxInputEl.dataset.auto === 'true');
     const jitterAmount = parseFloat(document.getElementById('jitter').value);
     const autoBrackets = document.getElementById('autoBrackets').checked;
-    const twoGroupSigSource = getTwoGroupSigSource();
+    const selectedSigSource = getTwoGroupSigSource();
     const showLines = document.getElementById('showLines').checked;
     const showBars = document.getElementById('showBars').checked;
     syncBarControlsUI();
@@ -6838,12 +6913,17 @@ function updatePlot(reflowPass = 0) {
         if (d.length === 2) {
             const welchRes = welchTTest(d[0], d[1]);
             const bmRes = brunnerMunzel(d[0], d[1]);
-            const sigDecision = getTwoGroupSigDecision(welchRes, bmRes, twoGroupSigSource);
+            const sigSource = resolveSigSourceForGroupCount(2, selectedSigSource);
+            const sigDecision = getTwoGroupSigDecision(welchRes, bmRes, sigSource);
             if (sigDecision.isSig) maxBracketLayers = Math.max(maxBracketLayers, 1);
         } else if (d.length >= 3) {
             const a = oneWayANOVA(d);
-            if (a && fDistributionP(a.f, a.df1, a.df2) < 0.05) {
-                const sigCount = runDunnett(d, a.msWithin, a.df2).filter(r => r.isSig).length;
+            if (a) {
+                const anovaP = fDistributionP(a.f, a.df1, a.df2);
+                const dunnettRes = runDunnett(d, a.msWithin, a.df2);
+                const sigSource = resolveSigSourceForGroupCount(d.length, selectedSigSource);
+                const sigDecision = getMultiGroupSigDecision(anovaP, dunnettRes, [], sigSource);
+                const sigCount = sigDecision.rows.filter(r => r.isSig).length;
                 maxBracketLayers = Math.max(maxBracketLayers, sigCount);
             }
         }
@@ -7090,10 +7170,11 @@ function updatePlot(reflowPass = 0) {
             const errorMaxY = Math.min(...statsAtTime.map(s => yScale(s.mean + (errorType === 'sd' ? s.sd : s.se))));
             let bracketY = errorMaxY - 15 - bracketOffset;
 
-            if (nGroups === 2) {
+            if (groupsData.length === 2) {
                 const welchRes = welchTTest(groupsData[0], groupsData[1]);
                 const bmRes = brunnerMunzel(groupsData[0], groupsData[1]);
-                const sigDecision = getTwoGroupSigDecision(welchRes, bmRes, twoGroupSigSource);
+                const sigSource = resolveSigSourceForGroupCount(2, selectedSigSource);
+                const sigDecision = getTwoGroupSigDecision(welchRes, bmRes, sigSource);
                 if (sigDecision.isSig) {
                     if (showLines) {
                         const s2 = calcStats(groupsData[1]);
@@ -7112,14 +7193,17 @@ function updatePlot(reflowPass = 0) {
                 }
             } else {
                 const a = oneWayANOVA(groupsData);
-                if (a && fDistributionP(a.f, a.df1, a.df2) < 0.05) {
+                if (a) {
+                    const anovaP = fDistributionP(a.f, a.df1, a.df2);
                     const dunnettRes = runDunnett(groupsData, a.msWithin, a.df2);
-                    dunnettRes.forEach((res, i) => {
+                    const sigSource = resolveSigSourceForGroupCount(groupsData.length, selectedSigSource);
+                    const sigDecision = getMultiGroupSigDecision(anovaP, dunnettRes, [], sigSource);
+                    sigDecision.rows.forEach((res, i) => {
                         if (res.isSig) {
                             const targetX = isCompMode
                                 ? getCompCenter(i + 1)
                                 : getTimeCenter(tIdx, i + 1, groupSpace);
-                            svgItems.push(drawBracket(ctrlX, targetX, bracketY, getStars(res.p), fsX));
+                            svgItems.push(drawBracket(ctrlX, targetX, bracketY, res.stars || '*', fsX));
                             bracketY -= bracketGap;
                         }
                     });
