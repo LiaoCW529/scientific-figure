@@ -2737,6 +2737,26 @@ function setTimeColumnsInGroupText(existingText, startIndex, values, timeCount) 
     return rows.map(row => row.join('\t').trimEnd()).filter(line => line.trim() !== '').join('\n');
 }
 
+function appendTimeColumnsInGroupText(existingText, startIndex, matrixCols, timeCount) {
+    const existingColCount = (existingText || '')
+        .split('\n')
+        .map(line => line.trim())
+        .filter(line => line !== '')
+        .reduce((max, line) => Math.max(max, line.split('\t').length), 0);
+    const finalTimeCount = Math.max(timeCount, startIndex + (matrixCols?.length || 0), existingColCount);
+    const columns = parseData(existingText || '', finalTimeCount);
+    const normalized = Array.from({ length: finalTimeCount }, (_, idx) => (columns[idx] || []).slice());
+    matrixCols.forEach((values, colOffset) => {
+        const colIdx = startIndex + colOffset;
+        if (colIdx < 0 || colIdx >= finalTimeCount) return;
+        const clean = (values || []).filter(v => v !== '' && v !== null && v !== undefined && Number.isFinite(parseFloat(v)))
+            .map(v => parseFloat(v));
+        if (!clean.length) return;
+        normalized[colIdx].push(...clean);
+    });
+    return buildMatrixFromColumns(normalized);
+}
+
 function showExplorerMenu(x, y) {
     const menu = document.getElementById('explorerMenu');
     if (!menu) return;
@@ -2784,18 +2804,27 @@ function sendExplorerToGroup(groupNumber) {
         let startIdx = timeSelect ? parseInt(timeSelect.value, 10) : 0;
         if (isNaN(startIdx) || startIdx < 0) startIdx = 0;
         const colCount = matrix[0] ? matrix[0].length : 1;
-        const requiredCount = Math.max(timeLabels.length, startIdx + colCount);
+        const existingText = stagedGroups[targetGroup] || '';
+        const existingColCount = (existingText || '')
+            .split('\n')
+            .map(line => line.trim())
+            .filter(line => line !== '')
+            .reduce((max, line) => Math.max(max, line.split('\t').length), 0);
+        const requiredCount = Math.max(timeLabels.length, startIdx + colCount, existingColCount);
         if (stagedTimeLabels.length < requiredCount) {
             for (let i = stagedTimeLabels.length; i < requiredCount; i++) {
                 stagedTimeLabels.push(`Time${i + 1}`);
             }
         }
-        let currentText = stagedGroups[targetGroup] || '';
-        for (let c = 0; c < colCount; c++) {
-            const colValues = matrix.map(row => row[c]).filter(v => v !== '' && v !== null && v !== undefined);
-            currentText = setTimeColumnsInGroupText(currentText, startIdx + c, colValues, requiredCount);
-        }
-        stagedGroups[targetGroup] = currentText;
+        const matrixCols = Array.from({ length: colCount }, (_, c) =>
+            matrix.map(row => row[c]).filter(v => v !== '' && v !== null && v !== undefined)
+        );
+        stagedGroups[targetGroup] = appendTimeColumnsInGroupText(
+            existingText,
+            startIdx,
+            matrixCols,
+            requiredCount
+        );
     } else {
         const rows = [];
         for (let r = explorerSelection.r1; r <= explorerSelection.r2; r++) {
@@ -2807,7 +2836,8 @@ function sendExplorerToGroup(groupNumber) {
                 }
             }
         }
-        stagedGroups[targetGroup] = rows.join('\n');
+        const existing = parseData(stagedGroups[targetGroup] || '', 1)[0] || [];
+        stagedGroups[targetGroup] = existing.concat(rows).join('\n');
     }
     renderStagedGroups();
     renderExplorerTimeSelect();
