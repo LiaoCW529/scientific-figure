@@ -974,7 +974,8 @@
     <div class="explorer-menu-row">
         <span style="font-size:0.7rem; color: var(--muted);">Group #</span>
         <input type="number" id="explorerGroupIndexMenu" min="1" value="4">
-        <button type="button" style="width:auto; padding:4px 8px;" onclick="sendExplorerToGroup()">Stage</button>
+        <button type="button" style="width:auto; padding:4px 8px;" onclick="sendExplorerToGroup()">Stage Data</button>
+        <button type="button" style="width:auto; padding:4px 8px;" onclick="sendExplorerToGroupName()">Set Name</button>
     </div>
     <div class="explorer-menu-row" id="explorerTimeActions">
         <button type="button" style="width:auto; padding:4px 8px;" onclick="stageExplorerTimeLabels(true)">Set Time Labels</button>
@@ -1584,6 +1585,7 @@ function addNewGroup(name = "", color = "", data = "") {
         renderGroupTimeGrid(card);
     }
     updatePlot();
+    renderExplorerMenuGroups();
 }
 
 function parseDelimitedText(text) {
@@ -2202,6 +2204,7 @@ function loadExplorerStash() {
         stagedGroupNames = payload.names || {};
         stagedTimeLabels = payload.timeLabels || [];
         renderStagedGroups();
+        renderExplorerMenuGroups();
         showToast('Staged data loaded.');
     } catch (err) {
         showToast('Failed to load staged data.');
@@ -2626,12 +2629,26 @@ function renderExplorerTimeSelect() {
     });
 }
 
+function getExplorerMenuMaxGroup() {
+    const stagedDataIndices = Object.keys(stagedGroups).map(n => parseInt(n, 10)).filter(n => !isNaN(n));
+    const stagedNameIndices = Object.keys(stagedGroupNames).map(n => parseInt(n, 10)).filter(n => !isNaN(n));
+    const currentGroups = document.querySelectorAll('.group-card').length;
+    const idxInput = document.getElementById('explorerGroupIndexMenu');
+    const manualIdx = idxInput ? parseInt(idxInput.value, 10) : NaN;
+    return Math.max(
+        3,
+        currentGroups,
+        groupCount || 0,
+        ...stagedDataIndices,
+        ...stagedNameIndices,
+        Number.isFinite(manualIdx) ? manualIdx : 0
+    );
+}
+
 function renderExplorerMenuGroups() {
     const container = document.getElementById('explorerGroupButtons');
     if (!container) return;
-    const groupIndices = Object.keys(stagedGroups).map(n => parseInt(n, 10)).filter(n => !isNaN(n));
-    const currentGroups = document.querySelectorAll('.group-card').length;
-    const maxGroup = Math.max(3, currentGroups, ...groupIndices, 3);
+    const maxGroup = getExplorerMenuMaxGroup();
     container.innerHTML = '';
     for (let i = 1; i <= maxGroup; i++) {
         const btn = document.createElement('button');
@@ -2645,12 +2662,16 @@ function renderExplorerMenuGroups() {
         btn.addEventListener('click', () => sendExplorerToGroup(i));
         container.appendChild(btn);
     }
+    const idxInput = document.getElementById('explorerGroupIndexMenu');
+    if (idxInput) {
+        idxInput.min = '1';
+        const v = parseInt(idxInput.value, 10);
+        if (!Number.isFinite(v) || v < 1) idxInput.value = '1';
+    }
 }
 
 function addExplorerGroup() {
-    const groupIndices = Object.keys(stagedGroups).map(n => parseInt(n, 10)).filter(n => !isNaN(n));
-    const currentGroups = document.querySelectorAll('.group-card').length;
-    const next = Math.max(3, currentGroups, ...groupIndices, 3) + 1;
+    const next = getExplorerMenuMaxGroup() + 1;
     if (!stagedGroups[next]) stagedGroups[next] = '';
     if (!stagedGroupNames[next]) stagedGroupNames[next] = `Group ${next}`;
     const idxInput = document.getElementById('explorerGroupIndexMenu');
@@ -2845,6 +2866,35 @@ function sendExplorerToGroup(groupNumber) {
     hideExplorerMenu();
 }
 
+function sendExplorerToGroupName(groupNumber) {
+    if (!explorerData || !explorerSelection) return;
+    if (explorerSelection.r1 !== explorerSelection.r2 || explorerSelection.c1 !== explorerSelection.c2) {
+        showToast('Select a single cell to set a group name.');
+        return;
+    }
+    const idxInput = document.getElementById('explorerGroupIndexMenu');
+    const targetGroup = groupNumber || (idxInput ? parseInt(idxInput.value, 10) : 1);
+    if (!targetGroup || targetGroup < 1) return;
+    const rawValue = explorerData[explorerSelection.r1]?.[explorerSelection.c1];
+    const groupName = String(rawValue ?? '').trim();
+    if (!groupName) {
+        showToast('Selected cell is empty.');
+        return;
+    }
+    stagedGroupNames[targetGroup] = groupName;
+    if (stagedGroups[targetGroup] === undefined) stagedGroups[targetGroup] = '';
+
+    const mainNameInput = document.querySelector(`#group_${targetGroup} .group-name-input`);
+    if (mainNameInput) {
+        mainNameInput.value = groupName;
+        updatePlot();
+    }
+
+    renderStagedGroups();
+    renderExplorerMenuGroups();
+    hideExplorerMenu();
+}
+
 function sendExplorerToTitle() {
     if (!explorerData || !explorerSelection) return;
     if (explorerSelection.r1 !== explorerSelection.r2 || explorerSelection.c1 !== explorerSelection.c2) {
@@ -2936,6 +2986,7 @@ function applyStagedGroups() {
         yMaxInputEl.value = '0';
     }
     updatePlot();
+    renderExplorerMenuGroups();
 
     const explorerPanel = document.getElementById('explorer-panel');
     if (explorerPanel) {
@@ -2954,6 +3005,7 @@ function clearStagedGroups() {
     stagedGroupNames = {};
     stagedTimeLabels = [];
     renderStagedGroups();
+    renderExplorerMenuGroups();
 }
 
 function clearGroupDataInputs(skipUpdate = false) {
@@ -4166,6 +4218,7 @@ function removeGroup(id) {
     if (el) el.remove();
     renumberGroups();
     updatePlot();
+    renderExplorerMenuGroups();
 }
 
 function renumberGroups() {
