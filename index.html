@@ -1473,6 +1473,7 @@ let plotMetrics = null;
 let chartOffsetX = 0;
 let chartOffsetY = 0;
 let activeProfile = null;
+const PROFILE_SCHEMA_VERSION = 2;
 let exportDirectoryHandle = null;
 let exportDirectoryName = '';
 let explorerData = null;
@@ -3697,6 +3698,95 @@ function loadSampleSurvival() {
     updatePlot();
 }
 
+function normalizeSigSourceValue(value) {
+    const raw = String(value || '').trim().toLowerCase();
+    if (!raw) return 'auto';
+    const aliases = {
+        either: 'either',
+        any: 'either',
+        welch: 'welch',
+        "welch's t-test": 'welch',
+        'welch t-test': 'welch',
+        'welch t': 'welch',
+        brunner: 'brunner',
+        'brunner-munzel': 'brunner',
+        brunnermunzel: 'brunner',
+        anova: 'anova',
+        dunnett: 'dunnett',
+        posthoc: 'dunnett',
+        'post-hoc': 'dunnett',
+        anova_dunnett: 'anova_dunnett',
+        'anova+dunnett': 'anova_dunnett',
+        'anova & dunnett': 'anova_dunnett',
+        both: 'anova_dunnett',
+        auto: 'auto'
+    };
+    return aliases[raw] || 'auto';
+}
+
+function normalizeProfile(rawProfile) {
+    if (!rawProfile || typeof rawProfile !== 'object') return null;
+    let profile;
+    try {
+        profile = JSON.parse(JSON.stringify(rawProfile));
+    } catch (e) {
+        profile = { ...rawProfile };
+    }
+
+    if (!profile.mode && typeof profile.plotMode === 'string') {
+        profile.mode = profile.plotMode;
+    }
+    if (typeof profile.timeLabels === 'string') {
+        profile.timeLabels = parseTimeLabelText(profile.timeLabels);
+    } else if (profile.timeLabels === undefined) {
+        if (Array.isArray(profile.timePoints)) {
+            profile.timeLabels = profile.timePoints.map(v => String(v));
+        } else if (typeof profile.timePoints === 'string') {
+            profile.timeLabels = parseTimeLabelText(profile.timePoints);
+        }
+    }
+
+    if (!profile.options || typeof profile.options !== 'object') {
+        profile.options = {};
+    }
+    if (profile.options.twoGroupSigSource === undefined && profile.options.sigSource !== undefined) {
+        profile.options.twoGroupSigSource = profile.options.sigSource;
+    }
+    profile.options.twoGroupSigSource = normalizeSigSourceValue(profile.options.twoGroupSigSource);
+    if (profile.options.bracketGap === undefined && profile.options.bracketSpacing !== undefined) {
+        profile.options.bracketGap = profile.options.bracketSpacing;
+    }
+    if (profile.options.bracketGap === undefined) {
+        profile.options.bracketGap = '22';
+    }
+
+    if (!Array.isArray(profile.groups) && profile.groupData && typeof profile.groupData === 'object') {
+        const keys = Object.keys(profile.groupData)
+            .map(k => parseInt(k, 10))
+            .filter(k => Number.isFinite(k) && k > 0)
+            .sort((a, b) => a - b);
+        if (keys.length) {
+            const legacyNames = profile.groupNames && typeof profile.groupNames === 'object' ? profile.groupNames : {};
+            profile.groups = keys.map((idx) => ({
+                name: String(legacyNames[idx] || `Group ${idx}`),
+                color: defaultColors[(idx - 1) % defaultColors.length],
+                data: String(profile.groupData[idx] || '')
+            }));
+        }
+    }
+    if (Array.isArray(profile.groups)) {
+        profile.groups = profile.groups.map((g, idx) => ({
+            name: String(g?.name ?? g?.label ?? `Group ${idx + 1}`),
+            color: String(g?.color || defaultColors[idx % defaultColors.length]),
+            data: Array.isArray(g?.data) ? g.data.join('\n') : String(g?.data || '')
+        }));
+    }
+
+    profile.version = PROFILE_SCHEMA_VERSION;
+    profile.schemaVersion = PROFILE_SCHEMA_VERSION;
+    return profile;
+}
+
 function collectProfile() {
     const mode = document.getElementById('plotMode').value;
     if (mode === 'time') {
@@ -3765,7 +3855,8 @@ function collectProfile() {
         };
     }
     return {
-        version: 1,
+        version: PROFILE_SCHEMA_VERSION,
+        schemaVersion: PROFILE_SCHEMA_VERSION,
         mode,
         timeLabels: getTimeLabels(),
         survival: {
@@ -3846,6 +3937,7 @@ function applyActiveProfile() {
 }
 
 function applyProfile(profile) {
+    profile = normalizeProfile(profile);
     if (!profile || typeof profile !== 'object') return;
     if (profile.mode) {
         const plotModeEl = document.getElementById('plotMode');
@@ -4142,9 +4234,15 @@ function loadProfile(event) {
     const reader = new FileReader();
     reader.onload = () => {
         try {
-            const profile = JSON.parse(reader.result);
+            const parsed = JSON.parse(reader.result);
+            const legacyVersion = Number(parsed?.schemaVersion ?? parsed?.version ?? 0);
+            const profile = normalizeProfile(parsed);
+            if (!profile) throw new Error('Invalid profile');
             activeProfile = profile;
             applyProfile(profile);
+            if (!Number.isFinite(legacyVersion) || legacyVersion < PROFILE_SCHEMA_VERSION) {
+                showToast(`Profile migrated to v${PROFILE_SCHEMA_VERSION}`);
+            }
         } catch (e) {
             alert('Invalid profile JSON');
         }
@@ -4156,6 +4254,8 @@ function loadProfile(event) {
 function resetProfile() {
     activeProfile = null;
     const defaultProfile = {
+        version: PROFILE_SCHEMA_VERSION,
+        schemaVersion: PROFILE_SCHEMA_VERSION,
         timeLabels: ['Day1', 'Day3', 'Day7'],
         survival: { xMax: '0', yPercent: false },
         chartSize: { width: '300', height: '200' },
@@ -4886,8 +4986,7 @@ function getSigSourceLabel(source) {
 
 function getTwoGroupSigSource() {
     const value = document.getElementById('twoGroupSigSource')?.value;
-    const allowed = ['auto', 'either', 'welch', 'brunner', 'anova', 'dunnett', 'anova_dunnett'];
-    return allowed.includes(value) ? value : 'auto';
+    return normalizeSigSourceValue(value);
 }
 
 function resolveSigSourceForGroupCount(groupCount, source = getTwoGroupSigSource()) {
