@@ -1193,13 +1193,13 @@
                     </div>
                     <div class="panel legend-panel">
                         <div class="option-list">
-                            <label style="font-weight: normal;"><input type="checkbox" id="showPostHoc" onchange="updatePlot()"> Show Post-hoc (Dunnett)</label>
+                            <label style="font-weight: normal;"><input type="checkbox" id="showPostHoc" onchange="updatePlot()"> Show Post-hoc / Pairwise</label>
                             <label style="font-weight: normal;"><input type="checkbox" id="autoBrackets" onchange="updatePlot()" checked> Auto Brackets (*)</label>
                         </div>
                         <div class="control-item">
                             <label for="twoGroupSigSource">Significance source</label>
                             <select id="twoGroupSigSource" onchange="updatePlot()">
-                                <option value="auto" selected>Auto (2-group: Either / 3+ groups: Dunnett)</option>
+                                <option value="auto" selected>Auto (2-group: Either / 3+ groups: Pairwise Either)</option>
                                 <optgroup label="2-group">
                                     <option value="either">Either (Welch or Brunner-Munzel)</option>
                                     <option value="welch">Welch t-test</option>
@@ -1209,10 +1209,32 @@
                                     <option value="anova">ANOVA (global)</option>
                                     <option value="dunnett">Dunnett (post-hoc)</option>
                                     <option value="anova_dunnett">ANOVA + Dunnett (both)</option>
+                                    <option value="pairwise_either">Pairwise Either (all pairs)</option>
+                                    <option value="pairwise_welch">Pairwise Welch (all pairs)</option>
+                                    <option value="pairwise_brunner">Pairwise Brunner-Munzel (all pairs)</option>
+                                    <option value="anova_pairwise">ANOVA + Pairwise Either (both)</option>
                                 </optgroup>
                             </select>
                             <div style="font-size:0.72rem; color: var(--muted); margin-top:4px;">
                                 Choose which statistical result controls stars (* <0.05, ** <0.01, *** <0.001, **** <0.0001).
+                            </div>
+                        </div>
+                        <div class="control-item">
+                            <label for="bracketSelectionMode">Bracket Draw Mode</label>
+                            <select id="bracketSelectionMode" onchange="updatePlot()">
+                                <option value="auto" selected>Auto (draw significant only)</option>
+                                <option value="manual">Manual (choose comparisons)</option>
+                            </select>
+                        </div>
+                        <div class="control-item" id="manualBracketPanel" style="display:none;">
+                            <label for="manualBracketSelect">Manual Comparisons</label>
+                            <select id="manualBracketSelect" multiple size="7" onchange="syncManualBracketSelectionFromUI(); updatePlot()"></select>
+                            <div style="display:flex; gap:6px; margin-top:6px;">
+                                <button type="button" class="btn-mini" style="width:auto;" onclick="selectSignificantBrackets()">Select Significant</button>
+                                <button type="button" class="btn-mini" style="width:auto;" onclick="clearManualBracketSelection()">Clear</button>
+                            </div>
+                            <div id="manualBracketHint" style="font-size:0.72rem; color: var(--muted); margin-top:4px;">
+                                Hold Ctrl/Shift to multi-select.
                             </div>
                         </div>
                         <div class="control-item">
@@ -1567,6 +1589,8 @@ let updateRafScheduled = false;
 let richLabelActiveInput = null;
 let richLabelSelectionStart = null;
 let richLabelSelectionEnd = null;
+let manualBracketSelection = new Set();
+let latestBracketOptions = [];
 
 function addNewGroup(name = "", color = "", data = "") {
     groupCount++;
@@ -3718,6 +3742,17 @@ function normalizeSigSourceValue(value) {
         anova_dunnett: 'anova_dunnett',
         'anova+dunnett': 'anova_dunnett',
         'anova & dunnett': 'anova_dunnett',
+        pairwise_either: 'pairwise_either',
+        pairwise: 'pairwise_either',
+        'pairwise either': 'pairwise_either',
+        pairwise_welch: 'pairwise_welch',
+        'pairwise welch': 'pairwise_welch',
+        pairwise_brunner: 'pairwise_brunner',
+        'pairwise brunner': 'pairwise_brunner',
+        'pairwise brunner-munzel': 'pairwise_brunner',
+        anova_pairwise: 'anova_pairwise',
+        'anova+pairwise': 'anova_pairwise',
+        'anova & pairwise': 'anova_pairwise',
         both: 'anova_dunnett',
         auto: 'auto'
     };
@@ -3753,6 +3788,15 @@ function normalizeProfile(rawProfile) {
         profile.options.twoGroupSigSource = profile.options.sigSource;
     }
     profile.options.twoGroupSigSource = normalizeSigSourceValue(profile.options.twoGroupSigSource);
+    if (profile.options.bracketSelectionMode === undefined && profile.options.bracketDrawMode !== undefined) {
+        profile.options.bracketSelectionMode = profile.options.bracketDrawMode;
+    }
+    profile.options.bracketSelectionMode = (profile.options.bracketSelectionMode === 'manual') ? 'manual' : 'auto';
+    if (!Array.isArray(profile.options.manualBracketSelection)) {
+        profile.options.manualBracketSelection = [];
+    } else {
+        profile.options.manualBracketSelection = profile.options.manualBracketSelection.map(v => String(v));
+    }
     if (profile.options.bracketGap === undefined && profile.options.bracketSpacing !== undefined) {
         profile.options.bracketGap = profile.options.bracketSpacing;
     }
@@ -3916,6 +3960,8 @@ function collectProfile() {
             showPostHoc: document.getElementById('showPostHoc').checked,
             autoBrackets: document.getElementById('autoBrackets').checked,
             twoGroupSigSource: document.getElementById('twoGroupSigSource')?.value || 'auto',
+            bracketSelectionMode: document.getElementById('bracketSelectionMode')?.value || 'auto',
+            manualBracketSelection: Array.from(manualBracketSelection),
             bracketOffset: document.getElementById('bracketOffset').value,
             bracketGap: document.getElementById('bracketGapInput')?.value
                 ?? document.getElementById('bracketGap')?.value
@@ -4030,7 +4076,29 @@ function applyProfile(profile) {
         const twoGroupSigSourceEl = document.getElementById('twoGroupSigSource');
         if (twoGroupSigSourceEl) {
             const sourceValue = profile.options.twoGroupSigSource ?? 'auto';
-            twoGroupSigSourceEl.value = ['auto', 'either', 'welch', 'brunner', 'anova', 'dunnett', 'anova_dunnett'].includes(sourceValue) ? sourceValue : 'auto';
+            twoGroupSigSourceEl.value = [
+                'auto',
+                'either',
+                'welch',
+                'brunner',
+                'anova',
+                'dunnett',
+                'anova_dunnett',
+                'pairwise_either',
+                'pairwise_welch',
+                'pairwise_brunner',
+                'anova_pairwise'
+            ].includes(sourceValue) ? sourceValue : 'auto';
+        }
+        const bracketSelectionModeEl = document.getElementById('bracketSelectionMode');
+        if (bracketSelectionModeEl) {
+            const drawMode = profile.options.bracketSelectionMode ?? 'auto';
+            bracketSelectionModeEl.value = (drawMode === 'manual') ? 'manual' : 'auto';
+        }
+        if (Array.isArray(profile.options.manualBracketSelection)) {
+            manualBracketSelection = new Set(profile.options.manualBracketSelection.map(v => String(v)));
+        } else {
+            manualBracketSelection = new Set();
         }
         document.getElementById('bracketOffset').value = profile.options.bracketOffset ?? '0';
         const gapEl = document.getElementById('bracketGap');
@@ -4280,6 +4348,8 @@ function resetProfile() {
             showPostHoc: false,
             autoBrackets: true,
             twoGroupSigSource: 'auto',
+            bracketSelectionMode: 'auto',
+            manualBracketSelection: [],
             bracketOffset: '0',
             bracketGap: '22'
         },
@@ -4979,7 +5049,11 @@ function getSigSourceLabel(source) {
         brunner: "Brunner-Munzel",
         anova: "ANOVA",
         dunnett: "Dunnett",
-        anova_dunnett: "ANOVA + Dunnett"
+        anova_dunnett: "ANOVA + Dunnett",
+        pairwise_either: "Pairwise Either",
+        pairwise_welch: "Pairwise Welch",
+        pairwise_brunner: "Pairwise Brunner-Munzel",
+        anova_pairwise: "ANOVA + Pairwise Either"
     };
     return labels[source] || source;
 }
@@ -4994,8 +5068,16 @@ function resolveSigSourceForGroupCount(groupCount, source = getTwoGroupSigSource
         if (source === 'auto') return 'either';
         return (source === 'either' || source === 'welch' || source === 'brunner') ? source : 'either';
     }
-    if (source === 'auto') return 'dunnett';
-    return (source === 'anova' || source === 'dunnett' || source === 'anova_dunnett') ? source : 'anova_dunnett';
+    if (source === 'auto') return 'pairwise_either';
+    return (
+        source === 'anova'
+        || source === 'dunnett'
+        || source === 'anova_dunnett'
+        || source === 'pairwise_either'
+        || source === 'pairwise_welch'
+        || source === 'pairwise_brunner'
+        || source === 'anova_pairwise'
+    ) ? source : 'pairwise_either';
 }
 
 function isValidPValue(p) {
@@ -5036,27 +5118,97 @@ function getTwoGroupSigDecision(welchRes, bmRes, source = resolveSigSourceForGro
     };
 }
 
-function getMultiGroupSigDecision(anovaP, dunnettRes, filteredGroups = [], source = resolveSigSourceForGroupCount(3, getTwoGroupSigSource())) {
+function runPairwiseComparisons(groupsData, method = 'either') {
+    const rows = [];
+    for (let i = 0; i < groupsData.length; i++) {
+        for (let j = i + 1; j < groupsData.length; j++) {
+            const a = groupsData[i] || [];
+            const b = groupsData[j] || [];
+            if (a.length < 2 || b.length < 2) continue;
+            const welch = welchTTest(a, b);
+            const bm = brunnerMunzel(a, b);
+            const welchP = welch && isValidPValue(welch.p) ? welch.p : null;
+            const brunnerP = bm && isValidPValue(bm.p) ? bm.p : null;
+            let p = null;
+            let used = method;
+
+            if (method === 'welch') {
+                p = welchP;
+            } else if (method === 'brunner') {
+                p = brunnerP;
+            } else {
+                const candidates = [];
+                if (welchP !== null) candidates.push({ key: 'welch', p: welchP });
+                if (brunnerP !== null) candidates.push({ key: 'brunner', p: brunnerP });
+                if (candidates.length) {
+                    const sigCandidates = candidates.filter(c => c.p < 0.05);
+                    const pool = sigCandidates.length ? sigCandidates : candidates;
+                    pool.sort((a1, b1) => a1.p - b1.p);
+                    p = pool[0].p;
+                    used = pool[0].key;
+                }
+            }
+
+            rows.push({
+                fromIdx: i,
+                toIdx: j,
+                p,
+                used,
+                usedLabel: getSigSourceLabel(used),
+                isSig: p !== null && p < 0.05,
+                stars: p !== null ? getStars(p) : ""
+            });
+        }
+    }
+    return rows;
+}
+
+function getMultiGroupSigDecision(anovaP, dunnettRes, pairwiseRows, filteredGroups = [], source = resolveSigSourceForGroupCount(3, getTwoGroupSigSource())) {
     const validAnovaP = isValidPValue(anovaP) ? anovaP : null;
-    const rows = (dunnettRes || []).map((res, idx) => {
+    const dunnettRows = (dunnettRes || []).map((res, idx) => {
         const p = isValidPValue(res?.p) ? res.p : null;
-        const label = filteredGroups[idx + 1]?.name || res?.targetName || `Group ${idx + 2}`;
-        return { idx, label, p };
+        const controlLabel = filteredGroups[0]?.name || 'Group 1';
+        const targetLabel = filteredGroups[idx + 1]?.name || res?.targetName || `Group ${idx + 2}`;
+        return {
+            fromIdx: 0,
+            toIdx: idx + 1,
+            label: `${controlLabel} vs ${targetLabel}`,
+            p
+        };
+    });
+    const pairRows = (pairwiseRows || []).map((row) => {
+        const fromLabel = filteredGroups[row.fromIdx]?.name || `Group ${row.fromIdx + 1}`;
+        const toLabel = filteredGroups[row.toIdx]?.name || `Group ${row.toIdx + 1}`;
+        return {
+            ...row,
+            label: `${fromLabel} vs ${toLabel}`
+        };
     });
 
     let decisionRows = [];
     if (source === 'anova') {
         const isSig = validAnovaP !== null && validAnovaP < 0.05;
         const stars = isSig ? getStars(validAnovaP) : '';
-        decisionRows = rows.map((r) => ({ ...r, isSig, stars }));
+        decisionRows = pairRows.map((r) => ({ ...r, isSig, stars }));
     } else if (source === 'dunnett') {
-        decisionRows = rows.map((r) => {
+        decisionRows = dunnettRows.map((r) => {
             const isSig = r.p !== null && r.p < 0.05;
+            return { ...r, isSig, stars: isSig ? getStars(r.p) : '' };
+        });
+    } else if (source === 'pairwise_welch' || source === 'pairwise_brunner' || source === 'pairwise_either') {
+        decisionRows = pairRows.map((r) => {
+            const isSig = r.p !== null && r.p < 0.05;
+            return { ...r, isSig, stars: isSig ? getStars(r.p) : '' };
+        });
+    } else if (source === 'anova_pairwise') {
+        const anovaSig = validAnovaP !== null && validAnovaP < 0.05;
+        decisionRows = pairRows.map((r) => {
+            const isSig = anovaSig && r.p !== null && r.p < 0.05;
             return { ...r, isSig, stars: isSig ? getStars(r.p) : '' };
         });
     } else {
         const anovaSig = validAnovaP !== null && validAnovaP < 0.05;
-        decisionRows = rows.map((r) => {
+        decisionRows = dunnettRows.map((r) => {
             const isSig = anovaSig && r.p !== null && r.p < 0.05;
             return { ...r, isSig, stars: isSig ? getStars(r.p) : '' };
         });
@@ -5079,6 +5231,56 @@ function getMultiGroupSigDecision(anovaP, dunnettRes, filteredGroups = [], sourc
         stars: representative ? representative.stars : '',
         statusText
     };
+}
+
+function syncManualBracketSelectionFromUI() {
+    const select = document.getElementById('manualBracketSelect');
+    if (!select) return;
+    manualBracketSelection = new Set(Array.from(select.selectedOptions).map(opt => opt.value));
+}
+
+function renderManualBracketSelect(options) {
+    const panel = document.getElementById('manualBracketPanel');
+    const select = document.getElementById('manualBracketSelect');
+    const hint = document.getElementById('manualBracketHint');
+    const mode = document.getElementById('bracketSelectionMode')?.value || 'auto';
+    if (panel) panel.style.display = mode === 'manual' ? '' : 'none';
+    if (!select) return;
+    latestBracketOptions = Array.isArray(options) ? options.slice() : [];
+
+    const availableKeys = new Set(latestBracketOptions.map(o => o.key));
+    manualBracketSelection = new Set(Array.from(manualBracketSelection).filter(k => availableKeys.has(k)));
+
+    select.innerHTML = '';
+    latestBracketOptions.forEach((opt) => {
+        const el = document.createElement('option');
+        el.value = opt.key;
+        const pText = opt.p === null || opt.p === undefined ? 'p=-' : (opt.p < 0.0001 ? 'p<0.0001' : `p=${opt.p.toFixed(4)}`);
+        el.textContent = `${opt.label} | ${pText}${opt.stars ? ` | ${opt.stars}` : ''}`;
+        el.selected = manualBracketSelection.has(opt.key);
+        select.appendChild(el);
+    });
+
+    if (hint) {
+        if (!latestBracketOptions.length) {
+            hint.textContent = 'No available comparisons at current settings.';
+        } else {
+            const sigCount = latestBracketOptions.filter(o => o.isSig).length;
+            hint.textContent = `${latestBracketOptions.length} comparisons, ${sigCount} significant. Hold Ctrl/Shift to multi-select.`;
+        }
+    }
+}
+
+function selectSignificantBrackets() {
+    manualBracketSelection = new Set(latestBracketOptions.filter(o => o.isSig).map(o => o.key));
+    renderManualBracketSelect(latestBracketOptions);
+    updatePlot();
+}
+
+function clearManualBracketSelection() {
+    manualBracketSelection = new Set();
+    renderManualBracketSelect(latestBracketOptions);
+    updatePlot();
 }
 
 function getCssVar(name) {
@@ -6381,6 +6583,7 @@ function logRankTestTwoGroups(timesA, timesB) {
 function displayStats(timeLabels, groupConfigs) {
     const nGroups = groupConfigs.length;
     const mainHeader = nGroups === 2 ? "Welch's t (p)" : "ANOVA (p)";
+    const secondaryHeader = nGroups === 2 ? 'Brunner-Munzel (p)' : 'Post-hoc / Pairwise (p)';
     const selectedSigSource = getTwoGroupSigSource();
     const formatP = (p) => {
         if (p === null || p === undefined || Number.isNaN(p)) return "-";
@@ -6406,7 +6609,7 @@ function displayStats(timeLabels, groupConfigs) {
             <tr style="background:#f1f3f5; border-bottom:2px solid #dee2e6;">
                 <th style="padding:10px;">Time Point</th>
                 <th style="padding:10px;">${mainHeader}</th>
-                <th style="padding:10px;">${nGroups === 2 ? 'Brunner-Munzel (p)' : 'Dunnett (Post-hoc)'}</th>
+                <th style="padding:10px;">${secondaryHeader}</th>
                 <th style="padding:10px;">Significance</th>
             </tr>
         </thead>
@@ -6444,15 +6647,33 @@ function displayStats(timeLabels, groupConfigs) {
             if (aRes) {
                 pMain = fDistributionP(aRes.f, aRes.df1, aRes.df2);
                 const dunnettRes = runDunnett(groupsData, aRes.msWithin, aRes.df2);
-                const sigDecision = getMultiGroupSigDecision(pMain, dunnettRes, filteredGroups, sigSource);
-                postHocHtml = sigDecision.rows.map((r, idx) => {
-                    const pText = formatP(dunnettRes[idx]?.p);
+                const pairMethod = sigSource === 'pairwise_welch'
+                    ? 'welch'
+                    : sigSource === 'pairwise_brunner'
+                        ? 'brunner'
+                        : 'either';
+                const pairwiseRows = runPairwiseComparisons(groupsData, pairMethod);
+                const sigDecision = getMultiGroupSigDecision(pMain, dunnettRes, pairwiseRows, filteredGroups, sigSource);
+                postHocHtml = sigDecision.rows.map((r) => {
+                    const pText = formatP(r.p);
                     return `<div style="color:${r.isSig ? 'var(--danger)' : 'var(--muted)'}">${r.label}: p=${pText}${r.stars ? ` (${r.stars})` : ''}</div>`;
                 }).join("");
                 status = sigDecision.isSig ? `${sigDecision.statusText} (${sigDecision.sourceLabel})` : 'NS';
                 detailParts.push(`ANOVA F=${aRes.f.toFixed(3)}, df1=${aRes.df1}, df2=${aRes.df2}, p=${formatPPreciseWithDecimal(pMain)}`);
                 dunnettRes.forEach((r, idx) => {
                     detailParts.push(`Dunnett vs Ctrl -> ${filteredGroups[idx + 1].name}: p=${formatPPreciseWithDecimal(r.p)}`);
+                });
+                const pairWelchRows = runPairwiseComparisons(groupsData, 'welch');
+                pairWelchRows.forEach((r) => {
+                    const aName = filteredGroups[r.fromIdx]?.name || `Group ${r.fromIdx + 1}`;
+                    const bName = filteredGroups[r.toIdx]?.name || `Group ${r.toIdx + 1}`;
+                    detailParts.push(`Pairwise Welch -> ${aName} vs ${bName}: p=${formatPPreciseWithDecimal(r.p)}`);
+                });
+                const pairBrunnerRows = runPairwiseComparisons(groupsData, 'brunner');
+                pairBrunnerRows.forEach((r) => {
+                    const aName = filteredGroups[r.fromIdx]?.name || `Group ${r.fromIdx + 1}`;
+                    const bName = filteredGroups[r.toIdx]?.name || `Group ${r.toIdx + 1}`;
+                    detailParts.push(`Pairwise Brunner-Munzel -> ${aName} vs ${bName}: p=${formatPPreciseWithDecimal(r.p)}`);
                 });
                 detailParts.push(`Displayed significance source=${sigDecision.sourceLabel}; status=${sigDecision.statusText}`);
             }
@@ -6688,6 +6909,7 @@ function updatePlot(reflowPass = 0) {
     const jitterAmount = parseFloat(document.getElementById('jitter').value);
     const autoBrackets = document.getElementById('autoBrackets').checked;
     const selectedSigSource = getTwoGroupSigSource();
+    const bracketSelectionMode = document.getElementById('bracketSelectionMode')?.value || 'auto';
     const showLines = document.getElementById('showLines').checked;
     const showBars = document.getElementById('showBars').checked;
     syncBarControlsUI();
@@ -6720,6 +6942,10 @@ function updatePlot(reflowPass = 0) {
     if (bracketGapSlider) bracketGapSlider.value = String(Math.round(bracketGap));
     if (bracketGapLabel) {
         bracketGapLabel.textContent = `${Math.round(bracketGap)}px`;
+    }
+    const manualPanel = document.getElementById('manualBracketPanel');
+    if (manualPanel) {
+        manualPanel.style.display = bracketSelectionMode === 'manual' ? '' : 'none';
     }
     const xAxisLabel = document.getElementById('xAxisLabel').value.trim();
     const yAxisLabel = document.getElementById('yAxisLabel').value.trim();
@@ -6836,6 +7062,7 @@ function updatePlot(reflowPass = 0) {
         });
     }
     if (survivalMode) {
+        renderManualBracketSelect([]);
         const { groupConfigs, maxTime } = parseSurvivalData(document.getElementById('survivalData').value);
         const xMaxEl = document.getElementById('survivalXMax');
         const xMaxInput = parseFloat(xMaxEl.value);
@@ -7006,27 +7233,72 @@ function updatePlot(reflowPass = 0) {
     };
 
     // 1. まず統計計算を行い、ブラケチEが忁Eな「階層数」を把握する
+    const bracketRowsByTime = new Map();
+    const bracketOptions = [];
     let maxBracketLayers = 0;
-    timeLabels.forEach((_, tIdx) => {
-        const d = groupConfigs.map(g => g.data[tIdx]).filter(x => x.length > 1);
-        if (d.length === 2) {
-            const welchRes = welchTTest(d[0], d[1]);
-            const bmRes = brunnerMunzel(d[0], d[1]);
-            const sigSource = resolveSigSourceForGroupCount(2, selectedSigSource);
+    timeLabels.forEach((label, tIdx) => {
+        const groupEntries = groupConfigs
+            .map((g, idx) => ({ idx, name: g.name, data: g.data[tIdx] || [] }))
+            .filter(entry => entry.data.length > 1);
+        if (groupEntries.length < 2) return;
+        const groupsData = groupEntries.map(entry => entry.data);
+        const sigSource = resolveSigSourceForGroupCount(groupEntries.length, selectedSigSource);
+
+        let rows = [];
+        if (groupEntries.length === 2) {
+            const welchRes = welchTTest(groupsData[0], groupsData[1]);
+            const bmRes = brunnerMunzel(groupsData[0], groupsData[1]);
             const sigDecision = getTwoGroupSigDecision(welchRes, bmRes, sigSource);
-            if (sigDecision.isSig) maxBracketLayers = Math.max(maxBracketLayers, 1);
-        } else if (d.length >= 3) {
-            const a = oneWayANOVA(d);
+            rows = [{
+                fromIdx: 0,
+                toIdx: 1,
+                label: `${groupEntries[0].name} vs ${groupEntries[1].name}`,
+                p: sigDecision.p,
+                isSig: sigDecision.isSig,
+                stars: sigDecision.stars
+            }];
+        } else {
+            const a = oneWayANOVA(groupsData);
             if (a) {
                 const anovaP = fDistributionP(a.f, a.df1, a.df2);
-                const dunnettRes = runDunnett(d, a.msWithin, a.df2);
-                const sigSource = resolveSigSourceForGroupCount(d.length, selectedSigSource);
-                const sigDecision = getMultiGroupSigDecision(anovaP, dunnettRes, [], sigSource);
-                const sigCount = sigDecision.rows.filter(r => r.isSig).length;
-                maxBracketLayers = Math.max(maxBracketLayers, sigCount);
+                const dunnettRes = runDunnett(groupsData, a.msWithin, a.df2);
+                const pairMethod = sigSource === 'pairwise_welch'
+                    ? 'welch'
+                    : sigSource === 'pairwise_brunner'
+                        ? 'brunner'
+                        : 'either';
+                const pairwiseRows = runPairwiseComparisons(groupsData, pairMethod);
+                const sigDecision = getMultiGroupSigDecision(anovaP, dunnettRes, pairwiseRows, groupEntries, sigSource);
+                rows = sigDecision.rows.map(r => ({
+                    fromIdx: r.fromIdx,
+                    toIdx: r.toIdx,
+                    label: r.label,
+                    p: r.p,
+                    isSig: r.isSig,
+                    stars: r.stars
+                }));
             }
         }
+
+        const keyedRows = rows.map((row) => {
+            const key = `${tIdx}|${row.fromIdx}|${row.toIdx}|${sigSource}`;
+            bracketOptions.push({
+                key,
+                label: `${label}: ${row.label}`,
+                p: row.p,
+                stars: row.stars,
+                isSig: row.isSig
+            });
+            return { ...row, key };
+        });
+        bracketRowsByTime.set(tIdx, { groupEntries, rows: keyedRows, sigSource });
+
+        const drawRows = bracketSelectionMode === 'manual'
+            ? keyedRows.filter(row => manualBracketSelection.has(row.key))
+            : keyedRows.filter(row => row.isSig);
+        maxBracketLayers = Math.max(maxBracketLayers, drawRows.length);
     });
+    renderManualBracketSelect(bracketOptions);
 
     // 2. Y軸の最大値を決宁E(ブラケチEがある場合E20-30%の余白を追加)
     const allValues = groupConfigs.flatMap(g => g.data.flat());
@@ -7256,57 +7528,42 @@ function updatePlot(reflowPass = 0) {
     // --- 有意差ブラケチEの描画 ---
     if (autoBrackets) {
         timeLabels.forEach((label, tIdx) => {
-            const groupsData = groupConfigs.map(g => g.data[tIdx]).filter(d => d.length > 1);
-            if (groupsData.length < 2) return;
+            const cache = bracketRowsByTime.get(tIdx);
+            if (!cache) return;
+            const groupEntries = cache.groupEntries;
+            const rows = cache.rows || [];
+            const groupsData = groupEntries.map(entry => entry.data);
+            const drawRows = bracketSelectionMode === 'manual'
+                ? rows.filter(row => manualBracketSelection.has(row.key))
+                : rows.filter(row => row.isSig);
+            if (!drawRows.length) return;
 
-            const baseCenter = pL + (tIdx + 0.5) * (graphW / timeLabels.length);
             const groupSpace = (graphW / timeLabels.length) * 0.85;
-            const ctrlX = isCompMode
-                ? getCompCenter(0)
-                : getTimeCenter(tIdx, 0, groupSpace);
+            const getGroupCenter = (localIdx) => {
+                const originalIdx = groupEntries[localIdx]?.idx ?? localIdx;
+                return isCompMode
+                    ? getCompCenter(originalIdx)
+                    : getTimeCenter(tIdx, originalIdx, groupSpace);
+            };
 
             const statsAtTime = groupsData.map(calcStats);
             const errorMaxY = Math.min(...statsAtTime.map(s => yScale(s.mean + (errorType === 'sd' ? s.sd : s.se))));
             let bracketY = errorMaxY - 15 - bracketOffset;
 
-            if (groupsData.length === 2) {
-                const welchRes = welchTTest(groupsData[0], groupsData[1]);
-                const bmRes = brunnerMunzel(groupsData[0], groupsData[1]);
-                const sigSource = resolveSigSourceForGroupCount(2, selectedSigSource);
-                const sigDecision = getTwoGroupSigDecision(welchRes, bmRes, sigSource);
-                if (sigDecision.isSig) {
-                    if (showLines) {
-                        const s2 = calcStats(groupsData[1]);
-                        const err2 = errorType === 'sd' ? s2.sd : s2.se;
-                        const targetX = isCompMode
-                            ? getCompCenter(1)
-                            : baseCenter;
-                        const starY = yScale(s2.mean + err2) - 8 - bracketOffset;
-                        svgItems.push(`<text class="sig-star" x="${targetX}" y="${starY}" text-anchor="middle" font-size="${fsX * 1.2}" font-family="Arial" font-weight="bold" fill="${axisColor}">${sigDecision.stars}</text>`);
-                    } else {
-                        const targetX = isCompMode
-                            ? getCompCenter(1)
-                            : getTimeCenter(tIdx, 1, groupSpace);
-                        svgItems.push(drawBracket(ctrlX, targetX, bracketY, sigDecision.stars, fsX));
-                    }
-                }
+            if (groupsData.length === 2 && drawRows.length === 1 && showLines) {
+                const targetRow = drawRows[0];
+                const targetStats = calcStats(groupsData[targetRow.toIdx] || []);
+                const err2 = errorType === 'sd' ? targetStats.sd : targetStats.se;
+                const targetX = getGroupCenter(targetRow.toIdx);
+                const starY = yScale(targetStats.mean + err2) - 8 - bracketOffset;
+                svgItems.push(`<text class="sig-star" x="${targetX}" y="${starY}" text-anchor="middle" font-size="${fsX * 1.2}" font-family="Arial" font-weight="bold" fill="${axisColor}">${targetRow.stars || '*'}</text>`);
             } else {
-                const a = oneWayANOVA(groupsData);
-                if (a) {
-                    const anovaP = fDistributionP(a.f, a.df1, a.df2);
-                    const dunnettRes = runDunnett(groupsData, a.msWithin, a.df2);
-                    const sigSource = resolveSigSourceForGroupCount(groupsData.length, selectedSigSource);
-                    const sigDecision = getMultiGroupSigDecision(anovaP, dunnettRes, [], sigSource);
-                    sigDecision.rows.forEach((res, i) => {
-                        if (res.isSig) {
-                            const targetX = isCompMode
-                                ? getCompCenter(i + 1)
-                                : getTimeCenter(tIdx, i + 1, groupSpace);
-                            svgItems.push(drawBracket(ctrlX, targetX, bracketY, res.stars || '*', fsX));
-                            bracketY -= bracketGap;
-                        }
-                    });
-                }
+                drawRows.forEach((row) => {
+                    const x1 = getGroupCenter(row.fromIdx);
+                    const x2 = getGroupCenter(row.toIdx);
+                    svgItems.push(drawBracket(x1, x2, bracketY, row.stars || '*', fsX));
+                    bracketY -= bracketGap;
+                });
             }
         });
     }
