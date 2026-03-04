@@ -2666,15 +2666,12 @@ function getExplorerMenuMaxGroup() {
     const stagedDataIndices = Object.keys(stagedGroups).map(n => parseInt(n, 10)).filter(n => !isNaN(n));
     const stagedNameIndices = Object.keys(stagedGroupNames).map(n => parseInt(n, 10)).filter(n => !isNaN(n));
     const currentGroups = document.querySelectorAll('.group-card').length;
-    const idxInput = document.getElementById('explorerGroupIndexMenu');
-    const manualIdx = idxInput ? parseInt(idxInput.value, 10) : NaN;
     return Math.max(
         3,
         currentGroups,
         groupCount || 0,
         ...stagedDataIndices,
-        ...stagedNameIndices,
-        Number.isFinite(manualIdx) ? manualIdx : 0
+        ...stagedNameIndices
     );
 }
 
@@ -2704,7 +2701,10 @@ function renderExplorerMenuGroups() {
 }
 
 function addExplorerGroup() {
-    const next = getExplorerMenuMaxGroup() + 1;
+    const stagedDataIndices = Object.keys(stagedGroups).map(n => parseInt(n, 10)).filter(n => Number.isFinite(n) && n > 0);
+    const stagedNameIndices = Object.keys(stagedGroupNames).map(n => parseInt(n, 10)).filter(n => Number.isFinite(n) && n > 0);
+    const stagedMax = Math.max(3, ...stagedDataIndices, ...stagedNameIndices);
+    const next = stagedMax + 1;
     if (!stagedGroups[next]) stagedGroups[next] = '';
     if (!stagedGroupNames[next]) stagedGroupNames[next] = `Group ${next}`;
     const idxInput = document.getElementById('explorerGroupIndexMenu');
@@ -3039,6 +3039,10 @@ function clearStagedGroups() {
     stagedTimeLabels = [];
     renderStagedGroups();
     renderExplorerMenuGroups();
+    const idxInput = document.getElementById('explorerGroupIndexMenu');
+    if (idxInput) {
+        idxInput.value = '4';
+    }
 }
 
 function clearGroupDataInputs(skipUpdate = false) {
