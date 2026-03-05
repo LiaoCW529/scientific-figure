@@ -152,6 +152,74 @@
             overflow-y: auto;
         }
         .stats-panel { background: var(--panel); padding: 20px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.08); }
+        .stats-method-toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; align-items: center; }
+        .stats-method-chip {
+            width: auto;
+            margin-top: 0;
+            padding: 6px 10px;
+            font-size: 0.78rem;
+            border-radius: 999px;
+            border: 1px solid var(--border);
+            background: var(--card);
+            color: var(--text);
+        }
+        .stats-method-chip.active {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: var(--button-text);
+        }
+        .stats-method-chip.inactive { opacity: 0.55; }
+        .stats-method-summary {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.82rem;
+            margin-bottom: 12px;
+        }
+        .stats-method-summary th,
+        .stats-method-summary td {
+            border: 1px solid var(--border);
+            padding: 6px 8px;
+            text-align: left;
+            background: var(--card);
+            color: var(--text);
+        }
+        .stats-method-summary th { background: rgba(255, 255, 255, 0.45); }
+        .stats-method-row-muted td { opacity: 0.55; }
+        .stats-method-link {
+            width: auto;
+            margin: 0;
+            padding: 0;
+            border: none;
+            background: none;
+            color: var(--accent);
+            text-align: left;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        .stats-method-link:hover { color: var(--button-hover); text-decoration: underline; }
+        .stats-method-section { margin-top: 10px; }
+        .stats-method-section h4 { margin: 0 0 6px; font-size: 0.9rem; color: var(--text); }
+        .stats-method-detail {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.78rem;
+            margin-bottom: 10px;
+        }
+        .stats-method-detail th,
+        .stats-method-detail td {
+            border: 1px solid var(--border);
+            padding: 5px 7px;
+            background: var(--card);
+            color: var(--text);
+        }
+        .stats-method-empty {
+            font-size: 0.8rem;
+            color: var(--muted);
+            background: var(--card);
+            border: 1px dashed var(--border);
+            border-radius: 6px;
+            padding: 8px;
+        }
         .longitudinal-area { display: none; flex-direction: column; gap: 16px; }
         .longitudinal-plot-card {
             background: var(--card);
@@ -1495,7 +1563,7 @@ let plotMetrics = null;
 let chartOffsetX = 0;
 let chartOffsetY = 0;
 let activeProfile = null;
-const PROFILE_SCHEMA_VERSION = 2;
+const PROFILE_SCHEMA_VERSION = 3;
 let exportDirectoryHandle = null;
 let exportDirectoryName = '';
 let explorerData = null;
@@ -1591,6 +1659,20 @@ let richLabelSelectionStart = null;
 let richLabelSelectionEnd = null;
 let manualBracketSelection = new Set();
 let latestBracketOptions = [];
+const STATS_METHOD_ORDER = [
+    'welch',
+    'brunner',
+    'anova',
+    'dunnett',
+    'pairwise_either',
+    'pairwise_welch',
+    'pairwise_brunner'
+];
+const DEFAULT_STATS_METHOD_VISIBILITY = STATS_METHOD_ORDER.reduce((acc, key) => {
+    acc[key] = true;
+    return acc;
+}, {});
+let statsMethodVisibility = { ...DEFAULT_STATS_METHOD_VISIBILITY };
 
 function addNewGroup(name = "", color = "", data = "") {
     groupCount++;
@@ -3807,6 +3889,7 @@ function normalizeProfile(rawProfile) {
     if (profile.options.bracketGap === undefined) {
         profile.options.bracketGap = '22';
     }
+    profile.options.statsMethodVisibility = normalizeStatsMethodVisibility(profile.options.statsMethodVisibility);
 
     if (!Array.isArray(profile.groups) && profile.groupData && typeof profile.groupData === 'object') {
         const keys = Object.keys(profile.groupData)
@@ -3969,7 +4052,8 @@ function collectProfile() {
             bracketOffset: document.getElementById('bracketOffset').value,
             bracketGap: document.getElementById('bracketGapInput')?.value
                 ?? document.getElementById('bracketGap')?.value
-                ?? '22'
+                ?? '22',
+            statsMethodVisibility: normalizeStatsMethodVisibility(statsMethodVisibility)
         },
         exportPrefs: {
             fileName: document.getElementById('exportFileName')?.value || '',
@@ -4110,6 +4194,9 @@ function applyProfile(profile) {
         const gapValue = profile.options.bracketGap ?? '22';
         if (gapEl) gapEl.value = gapValue;
         if (gapInputEl) gapInputEl.value = gapValue;
+        statsMethodVisibility = normalizeStatsMethodVisibility(profile.options.statsMethodVisibility);
+    } else {
+        statsMethodVisibility = { ...DEFAULT_STATS_METHOD_VISIBILITY };
     }
     if (profile.exportPrefs) {
         const fileInput = document.getElementById('exportFileName');
@@ -4355,7 +4442,8 @@ function resetProfile() {
             bracketSelectionMode: 'auto',
             manualBracketSelection: [],
             bracketOffset: '0',
-            bracketGap: '22'
+            bracketGap: '22',
+            statsMethodVisibility: { ...DEFAULT_STATS_METHOD_VISIBILITY }
         },
         exportPrefs: {
             fileName: 'MultiGroup_Figure',
@@ -5043,6 +5131,59 @@ function getStars(p) {
     if (p < 0.01) return "**";
     if (p < 0.05) return "*";
     return "";
+}
+
+function getSummaryStarTier(p) {
+    if (!isValidPValue(p)) return 0;
+    if (p < 0.001) return 3;
+    if (p < 0.01) return 2;
+    if (p < 0.05) return 1;
+    return 0;
+}
+
+function getSummaryStars(p) {
+    const tier = getSummaryStarTier(p);
+    if (tier === 3) return '***';
+    if (tier === 2) return '**';
+    if (tier === 1) return '*';
+    return '';
+}
+
+function summarizeMethodSignificance(rows = []) {
+    const summary = { total: 0, one: 0, two: 0, three: 0 };
+    rows.forEach((row) => {
+        const tier = getSummaryStarTier(row?.p);
+        if (tier === 1) summary.one += 1;
+        if (tier === 2) summary.two += 1;
+        if (tier === 3) summary.three += 1;
+        if (tier > 0) summary.total += 1;
+    });
+    return summary;
+}
+
+function normalizeStatsMethodVisibility(rawValue) {
+    const normalized = { ...DEFAULT_STATS_METHOD_VISIBILITY };
+    if (!rawValue || typeof rawValue !== 'object') return normalized;
+    STATS_METHOD_ORDER.forEach((key) => {
+        if (rawValue[key] !== undefined) {
+            normalized[key] = !!rawValue[key];
+        }
+    });
+    return normalized;
+}
+
+function toggleStatsMethodVisibility(methodKey) {
+    if (!STATS_METHOD_ORDER.includes(methodKey)) return;
+    statsMethodVisibility[methodKey] = !(statsMethodVisibility[methodKey] !== false);
+    updatePlot();
+}
+
+function setAllStatsMethodVisibility(visible) {
+    const next = !!visible;
+    STATS_METHOD_ORDER.forEach((key) => {
+        statsMethodVisibility[key] = next;
+    });
+    updatePlot();
 }
 
 function getSigSourceLabel(source) {
@@ -6585,9 +6726,6 @@ function logRankTestTwoGroups(timesA, timesB) {
 }
 
 function displayStats(timeLabels, groupConfigs) {
-    const nGroups = groupConfigs.length;
-    const mainHeader = nGroups === 2 ? "Welch's t (p)" : "ANOVA (p)";
-    const secondaryHeader = nGroups === 2 ? 'Brunner-Munzel (p)' : 'Post-hoc / Pairwise (p)';
     const selectedSigSource = getTwoGroupSigSource();
     const formatP = (p) => {
         if (p === null || p === undefined || Number.isNaN(p)) return "-";
@@ -6607,36 +6745,43 @@ function displayStats(timeLabels, groupConfigs) {
         return `${exp} (${dec})`;
     };
     const detailLines = [];
-
-    let html = `<table style="width:100%; border-collapse: collapse; font-size: 0.85rem;">
-        <thead>
-            <tr style="background:#f1f3f5; border-bottom:2px solid #dee2e6;">
-                <th style="padding:10px;">Time Point</th>
-                <th style="padding:10px;">${mainHeader}</th>
-                <th style="padding:10px;">${secondaryHeader}</th>
-                <th style="padding:10px;">Significance</th>
-            </tr>
-        </thead>
-        <tbody>`;
+    const methodRecords = STATS_METHOD_ORDER.reduce((acc, key) => {
+        acc[key] = [];
+        return acc;
+    }, {});
+    const pushMethodRecord = (methodKey, record) => {
+        if (!methodRecords[methodKey]) return;
+        methodRecords[methodKey].push(record);
+    };
 
     timeLabels.forEach((label, tIdx) => {
         const filteredGroups = groupConfigs.filter(g => (g.data[tIdx] || []).length > 1);
         const groupsData = filteredGroups.map(g => g.data[tIdx]);
         if (groupsData.length < 2) return;
-        const sigSource = resolveSigSourceForGroupCount(groupsData.length, selectedSigSource);
-
-        let pMain = 1;
-        let postHocHtml = "-";
-        let status = "NS";
         const detailParts = [];
 
         if (groupsData.length === 2) {
             const res = welchTTest(groupsData[0], groupsData[1]);
             const bm = brunnerMunzel(groupsData[0], groupsData[1]);
+            const sigSource = resolveSigSourceForGroupCount(groupsData.length, selectedSigSource);
+            const leftName = filteredGroups[0]?.name || 'Group 1';
+            const rightName = filteredGroups[1]?.name || 'Group 2';
+            const comparisonLabel = `${leftName} vs ${rightName}`;
             const sigDecision = getTwoGroupSigDecision(res, bm, sigSource);
-            pMain = res ? res.p : 1;
-            postHocHtml = bm ? formatP(bm.p) : "-";
-            status = sigDecision.isSig ? `${sigDecision.stars || "*"} (${sigDecision.usedLabel})` : "NS";
+            pushMethodRecord('welch', {
+                timeLabel: label,
+                timeIndex: tIdx,
+                comparison: comparisonLabel,
+                p: res?.p ?? null,
+                note: res ? `t=${res.t.toFixed(3)}, df=${res.df.toFixed(2)}` : ''
+            });
+            pushMethodRecord('brunner', {
+                timeLabel: label,
+                timeIndex: tIdx,
+                comparison: comparisonLabel,
+                p: bm?.p ?? null,
+                note: bm && Number.isFinite(bm.w) ? `W=${bm.w.toFixed(3)}` : ''
+            });
             if (res) {
                 detailParts.push(`Welch t=${res.t.toFixed(3)}, df=${res.df.toFixed(2)}, p=${formatPPreciseWithDecimal(res.p)}`);
             }
@@ -6649,52 +6794,182 @@ function displayStats(timeLabels, groupConfigs) {
         } else {
             const aRes = oneWayANOVA(groupsData);
             if (aRes) {
-                pMain = fDistributionP(aRes.f, aRes.df1, aRes.df2);
+                const anovaP = fDistributionP(aRes.f, aRes.df1, aRes.df2);
                 const dunnettRes = runDunnett(groupsData, aRes.msWithin, aRes.df2);
+                const sigSource = resolveSigSourceForGroupCount(groupsData.length, selectedSigSource);
                 const pairMethod = sigSource === 'pairwise_welch'
                     ? 'welch'
                     : sigSource === 'pairwise_brunner'
                         ? 'brunner'
                         : 'either';
-                const pairwiseRows = runPairwiseComparisons(groupsData, pairMethod);
-                const sigDecision = getMultiGroupSigDecision(pMain, dunnettRes, pairwiseRows, filteredGroups, sigSource);
-                postHocHtml = sigDecision.rows.map((r) => {
-                    const pText = formatP(r.p);
-                    return `<div style="color:${r.isSig ? 'var(--danger)' : 'var(--muted)'}">${r.label}: p=${pText}${r.stars ? ` (${r.stars})` : ''}</div>`;
-                }).join("");
-                status = sigDecision.isSig ? `${sigDecision.statusText} (${sigDecision.sourceLabel})` : 'NS';
-                detailParts.push(`ANOVA F=${aRes.f.toFixed(3)}, df1=${aRes.df1}, df2=${aRes.df2}, p=${formatPPreciseWithDecimal(pMain)}`);
+                const pairwiseRowsForDecision = runPairwiseComparisons(groupsData, pairMethod);
+                const sigDecision = getMultiGroupSigDecision(anovaP, dunnettRes, pairwiseRowsForDecision, filteredGroups, sigSource);
+                pushMethodRecord('anova', {
+                    timeLabel: label,
+                    timeIndex: tIdx,
+                    comparison: 'All groups',
+                    p: anovaP,
+                    note: `F=${aRes.f.toFixed(3)}, df1=${aRes.df1}, df2=${aRes.df2}`
+                });
                 dunnettRes.forEach((r, idx) => {
-                    detailParts.push(`Dunnett vs Ctrl -> ${filteredGroups[idx + 1].name}: p=${formatPPreciseWithDecimal(r.p)}`);
+                    const targetName = filteredGroups[idx + 1]?.name || `Group ${idx + 2}`;
+                    pushMethodRecord('dunnett', {
+                        timeLabel: label,
+                        timeIndex: tIdx,
+                        comparison: `${filteredGroups[0].name} vs ${targetName}`,
+                        p: r?.p ?? null,
+                        note: 'Dunnett vs control'
+                    });
+                });
+                const pairwiseEitherRows = runPairwiseComparisons(groupsData, 'either');
+                pairwiseEitherRows.forEach((r) => {
+                    const aName = filteredGroups[r.fromIdx]?.name || `Group ${r.fromIdx + 1}`;
+                    const bName = filteredGroups[r.toIdx]?.name || `Group ${r.toIdx + 1}`;
+                    pushMethodRecord('pairwise_either', {
+                        timeLabel: label,
+                        timeIndex: tIdx,
+                        comparison: `${aName} vs ${bName}`,
+                        p: r.p,
+                        note: `Auto used: ${r.usedLabel}`
+                    });
                 });
                 const pairWelchRows = runPairwiseComparisons(groupsData, 'welch');
                 pairWelchRows.forEach((r) => {
                     const aName = filteredGroups[r.fromIdx]?.name || `Group ${r.fromIdx + 1}`;
                     const bName = filteredGroups[r.toIdx]?.name || `Group ${r.toIdx + 1}`;
-                    detailParts.push(`Pairwise Welch -> ${aName} vs ${bName}: p=${formatPPreciseWithDecimal(r.p)}`);
+                    pushMethodRecord('pairwise_welch', {
+                        timeLabel: label,
+                        timeIndex: tIdx,
+                        comparison: `${aName} vs ${bName}`,
+                        p: r.p,
+                        note: 'Welch pairwise'
+                    });
                 });
                 const pairBrunnerRows = runPairwiseComparisons(groupsData, 'brunner');
+                pairBrunnerRows.forEach((r) => {
+                    const aName = filteredGroups[r.fromIdx]?.name || `Group ${r.fromIdx + 1}`;
+                    const bName = filteredGroups[r.toIdx]?.name || `Group ${r.toIdx + 1}`;
+                    pushMethodRecord('pairwise_brunner', {
+                        timeLabel: label,
+                        timeIndex: tIdx,
+                        comparison: `${aName} vs ${bName}`,
+                        p: r.p,
+                        note: 'Brunner-Munzel pairwise'
+                    });
+                });
+
+                detailParts.push(`ANOVA F=${aRes.f.toFixed(3)}, df1=${aRes.df1}, df2=${aRes.df2}, p=${formatPPreciseWithDecimal(anovaP)}`);
+                dunnettRes.forEach((r, idx) => {
+                    const targetName = filteredGroups[idx + 1]?.name || `Group ${idx + 2}`;
+                    detailParts.push(`Dunnett vs Ctrl -> ${targetName}: p=${formatPPreciseWithDecimal(r.p)}`);
+                });
+                pairWelchRows.forEach((r) => {
+                    const aName = filteredGroups[r.fromIdx]?.name || `Group ${r.fromIdx + 1}`;
+                    const bName = filteredGroups[r.toIdx]?.name || `Group ${r.toIdx + 1}`;
+                    detailParts.push(`Pairwise Welch -> ${aName} vs ${bName}: p=${formatPPreciseWithDecimal(r.p)}`);
+                });
                 pairBrunnerRows.forEach((r) => {
                     const aName = filteredGroups[r.fromIdx]?.name || `Group ${r.fromIdx + 1}`;
                     const bName = filteredGroups[r.toIdx]?.name || `Group ${r.toIdx + 1}`;
                     detailParts.push(`Pairwise Brunner-Munzel -> ${aName} vs ${bName}: p=${formatPPreciseWithDecimal(r.p)}`);
                 });
                 detailParts.push(`Displayed significance source=${sigDecision.sourceLabel}; status=${sigDecision.statusText}`);
+            } else {
+                detailParts.push('ANOVA result invalid; skipped multi-group statistics at this time point.');
             }
         }
 
-        html += `<tr style="border-bottom:1px solid var(--border);">
-            <td style="padding:8px; font-weight:bold;">${label}</td>
-            <td style="padding:8px; color:${pMain < 0.05 ? 'red' : 'black'}">${formatP(pMain)}</td>
-            <td style="padding:8px; font-size:0.75rem;">${postHocHtml}</td>
-            <td style="padding:8px;"><strong>${status}</strong></td>
-        </tr>`;
         if (detailParts.length) {
             detailLines.push(`[${label}]\n${detailParts.join('\n')}`);
         }
     });
 
-    html += `</tbody></table>`;
+    statsMethodVisibility = normalizeStatsMethodVisibility(statsMethodVisibility);
+    const availableMethodKeys = STATS_METHOD_ORDER.filter((key) => methodRecords[key].length > 0);
+    const activeMethodKeys = availableMethodKeys.filter((key) => statsMethodVisibility[key] !== false);
+    let html = '';
+
+    if (!availableMethodKeys.length) {
+        html = '<p style="color: var(--muted);">No valid statistical comparisons were found for current data.</p>';
+    } else {
+        const toggleHtml = availableMethodKeys.map((key) => {
+            const summary = summarizeMethodSignificance(methodRecords[key]);
+            const active = statsMethodVisibility[key] !== false;
+            return `<button type="button" class="stats-method-chip ${active ? 'active' : 'inactive'}" onclick="toggleStatsMethodVisibility('${key}')">${escapeHtml(getSigSourceLabel(key))} (${summary.total})</button>`;
+        }).join('');
+
+        const summaryRows = availableMethodKeys.map((key) => {
+            const summary = summarizeMethodSignificance(methodRecords[key]);
+            const active = statsMethodVisibility[key] !== false;
+            return `<tr class="${active ? '' : 'stats-method-row-muted'}">
+                <td><button type="button" class="stats-method-link" onclick="toggleStatsMethodVisibility('${key}')">${escapeHtml(getSigSourceLabel(key))}</button></td>
+                <td>${summary.total}</td>
+                <td>${summary.one}</td>
+                <td>${summary.two}</td>
+                <td>${summary.three}</td>
+                <td>${active ? 'Shown' : 'Hidden'}</td>
+            </tr>`;
+        }).join('');
+
+        const detailHtml = activeMethodKeys.length
+            ? activeMethodKeys.map((key) => {
+                const methodLabel = escapeHtml(getSigSourceLabel(key));
+                const rows = methodRecords[key]
+                    .slice()
+                    .sort((a, b) => (a.timeIndex - b.timeIndex) || String(a.comparison).localeCompare(String(b.comparison)));
+                const rowHtml = rows.map((row) => {
+                    const pText = formatP(row.p);
+                    const stars = getSummaryStars(row.p);
+                    const sigColor = stars ? 'var(--danger)' : 'var(--muted)';
+                    return `<tr>
+                        <td>${escapeHtml(row.timeLabel)}</td>
+                        <td>${escapeHtml(row.comparison)}</td>
+                        <td style="color:${stars ? 'var(--danger)' : 'var(--text)'}">${pText}</td>
+                        <td style="color:${sigColor}; font-weight:bold;">${stars || 'NS'}</td>
+                        <td>${escapeHtml(row.note || '-')}</td>
+                    </tr>`;
+                }).join('');
+                return `<div class="stats-method-section">
+                    <h4>${methodLabel}</h4>
+                    <table class="stats-method-detail">
+                        <thead>
+                            <tr>
+                                <th>Time Point</th>
+                                <th>Comparison</th>
+                                <th>p-value</th>
+                                <th>Stars</th>
+                                <th>Method Notes</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rowHtml}</tbody>
+                    </table>
+                </div>`;
+            }).join('')
+            : '<div class="stats-method-empty">No method selected. Click a method button above to show its results.</div>';
+
+        html = `
+            <div class="stats-method-toolbar">
+                ${toggleHtml}
+                <button type="button" class="stats-method-chip" onclick="setAllStatsMethodVisibility(true)">Show All</button>
+                <button type="button" class="stats-method-chip" onclick="setAllStatsMethodVisibility(false)">Hide All</button>
+            </div>
+            <table class="stats-method-summary">
+                <thead>
+                    <tr>
+                        <th>Stat Method</th>
+                        <th>Significant Count</th>
+                        <th>* (&lt;0.05)</th>
+                        <th>** (&lt;0.01)</th>
+                        <th>*** (&lt;0.001)</th>
+                        <th>Display</th>
+                    </tr>
+                </thead>
+                <tbody>${summaryRows}</tbody>
+            </table>
+            ${detailHtml}
+        `;
+    }
+
     document.getElementById('statsTableContainer').innerHTML = html;
     const detailEl = document.getElementById('calcDetails');
     if (detailEl) {
