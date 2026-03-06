@@ -367,6 +367,18 @@
             gap: 2px;
         }
         .panel-disabled { opacity: 0.5; pointer-events: none; }
+        .y-axis-break-grid {
+            display: grid;
+            gap: 6px;
+            margin-top: 6px;
+        }
+        .y-axis-break-row {
+            display: grid;
+            grid-template-columns: 1fr 80px;
+            gap: 6px;
+            align-items: center;
+        }
+        .y-axis-break-row input[type="number"] { width: 100%; }
 
         .resizer {
             width: 8px;
@@ -1369,6 +1381,33 @@
                                 <button type="button" id="err-sd" class="btn-mini" style="width:auto;" onclick="setErrorType('sd')">SD</button>
                             </div>
                         </div>
+                        <div class="control-item">
+                            <label style="font-weight: normal; margin: 0;">
+                                <input type="checkbox" id="enableYAxisBreak" onchange="updatePlot()"> Broken Y-axis Marker
+                            </label>
+                            <div id="yAxisBreakControls" class="y-axis-break-grid panel-disabled">
+                                <div class="y-axis-break-row">
+                                    <label for="yAxisBreakPosition" style="font-weight: normal; margin: 0;">Position (Y value)</label>
+                                    <input type="number" id="yAxisBreakPosition" value="50" step="0.1" oninput="updatePlot()">
+                                </div>
+                                <div class="y-axis-break-row">
+                                    <label for="yAxisBreakSize" style="font-weight: normal; margin: 0;">Marker size</label>
+                                    <input type="number" id="yAxisBreakSize" value="10" min="4" max="60" step="0.5" oninput="updatePlot()">
+                                </div>
+                                <div class="y-axis-break-row">
+                                    <label for="yAxisBreakLineWidth" style="font-weight: normal; margin: 0;">Line width</label>
+                                    <input type="number" id="yAxisBreakLineWidth" value="1.6" min="0.4" max="8" step="0.1" oninput="updatePlot()">
+                                </div>
+                                <div class="y-axis-break-row">
+                                    <label for="yAxisBreakAngle" style="font-weight: normal; margin: 0;">Angle (deg)</label>
+                                    <input type="number" id="yAxisBreakAngle" value="35" min="5" max="80" step="1" oninput="updatePlot()">
+                                </div>
+                                <div class="y-axis-break-row">
+                                    <label for="yAxisBreakSpacing" style="font-weight: normal; margin: 0;">Stroke spacing</label>
+                                    <input type="number" id="yAxisBreakSpacing" value="4" min="1" max="20" step="0.5" oninput="updatePlot()">
+                                </div>
+                            </div>
+                        </div>
                     </div>
                     <div class="panel legend-panel">
                         <div class="control-item">
@@ -1563,7 +1602,7 @@ let plotMetrics = null;
 let chartOffsetX = 0;
 let chartOffsetY = 0;
 let activeProfile = null;
-const PROFILE_SCHEMA_VERSION = 3;
+const PROFILE_SCHEMA_VERSION = 4;
 let exportDirectoryHandle = null;
 let exportDirectoryName = '';
 let explorerData = null;
@@ -1673,6 +1712,14 @@ const DEFAULT_STATS_METHOD_VISIBILITY = STATS_METHOD_ORDER.reduce((acc, key) => 
     return acc;
 }, {});
 let statsMethodVisibility = { ...DEFAULT_STATS_METHOD_VISIBILITY };
+const DEFAULT_Y_AXIS_BREAK = {
+    enabled: false,
+    position: 50,
+    size: 10,
+    lineWidth: 1.6,
+    angle: 35,
+    spacing: 4
+};
 
 function addNewGroup(name = "", color = "", data = "") {
     groupCount++;
@@ -3889,6 +3936,10 @@ function normalizeProfile(rawProfile) {
     if (profile.options.bracketGap === undefined) {
         profile.options.bracketGap = '22';
     }
+    if (profile.options.yAxisBreak === undefined && profile.options.brokenYAxis !== undefined) {
+        profile.options.yAxisBreak = profile.options.brokenYAxis;
+    }
+    profile.options.yAxisBreak = normalizeYAxisBreakOptions(profile.options.yAxisBreak);
     profile.options.statsMethodVisibility = normalizeStatsMethodVisibility(profile.options.statsMethodVisibility);
 
     if (!Array.isArray(profile.groups) && profile.groupData && typeof profile.groupData === 'object') {
@@ -4053,6 +4104,7 @@ function collectProfile() {
             bracketGap: document.getElementById('bracketGapInput')?.value
                 ?? document.getElementById('bracketGap')?.value
                 ?? '22',
+            yAxisBreak: readYAxisBreakSettings(),
             statsMethodVisibility: normalizeStatsMethodVisibility(statsMethodVisibility)
         },
         exportPrefs: {
@@ -4194,8 +4246,10 @@ function applyProfile(profile) {
         const gapValue = profile.options.bracketGap ?? '22';
         if (gapEl) gapEl.value = gapValue;
         if (gapInputEl) gapInputEl.value = gapValue;
+        applyYAxisBreakSettingsToInputs(profile.options.yAxisBreak);
         statsMethodVisibility = normalizeStatsMethodVisibility(profile.options.statsMethodVisibility);
     } else {
+        applyYAxisBreakSettingsToInputs(DEFAULT_Y_AXIS_BREAK);
         statsMethodVisibility = { ...DEFAULT_STATS_METHOD_VISIBILITY };
     }
     if (profile.exportPrefs) {
@@ -4443,6 +4497,7 @@ function resetProfile() {
             manualBracketSelection: [],
             bracketOffset: '0',
             bracketGap: '22',
+            yAxisBreak: { ...DEFAULT_Y_AXIS_BREAK },
             statsMethodVisibility: { ...DEFAULT_STATS_METHOD_VISIBILITY }
         },
         exportPrefs: {
@@ -5426,6 +5481,109 @@ function clearManualBracketSelection() {
     manualBracketSelection = new Set();
     renderManualBracketSelect(latestBracketOptions);
     updatePlot();
+}
+
+function clampNumeric(value, min, max, fallback) {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return fallback;
+    return Math.min(max, Math.max(min, num));
+}
+
+function normalizeYAxisBreakOptions(rawValue) {
+    const src = (rawValue && typeof rawValue === 'object') ? rawValue : {};
+    const enabled = src.enabled === true || src.enabled === 'true' || src.enabled === 1 || src.enabled === '1';
+    return {
+        enabled,
+        position: Number.isFinite(Number(src.position)) ? Number(src.position) : DEFAULT_Y_AXIS_BREAK.position,
+        size: clampNumeric(src.size, 4, 60, DEFAULT_Y_AXIS_BREAK.size),
+        lineWidth: clampNumeric(src.lineWidth, 0.4, 8, DEFAULT_Y_AXIS_BREAK.lineWidth),
+        angle: clampNumeric(src.angle, 5, 80, DEFAULT_Y_AXIS_BREAK.angle),
+        spacing: clampNumeric(src.spacing, 1, 20, DEFAULT_Y_AXIS_BREAK.spacing)
+    };
+}
+
+function applyYAxisBreakSettingsToInputs(settings) {
+    const normalized = normalizeYAxisBreakOptions(settings);
+    const enabledEl = document.getElementById('enableYAxisBreak');
+    if (enabledEl) enabledEl.checked = normalized.enabled;
+    const posEl = document.getElementById('yAxisBreakPosition');
+    if (posEl) posEl.value = normalized.position;
+    const sizeEl = document.getElementById('yAxisBreakSize');
+    if (sizeEl) sizeEl.value = normalized.size;
+    const widthEl = document.getElementById('yAxisBreakLineWidth');
+    if (widthEl) widthEl.value = normalized.lineWidth;
+    const angleEl = document.getElementById('yAxisBreakAngle');
+    if (angleEl) angleEl.value = normalized.angle;
+    const spacingEl = document.getElementById('yAxisBreakSpacing');
+    if (spacingEl) spacingEl.value = normalized.spacing;
+    const panel = document.getElementById('yAxisBreakControls');
+    if (panel) panel.classList.toggle('panel-disabled', !normalized.enabled);
+}
+
+function readYAxisBreakSettings() {
+    const settings = normalizeYAxisBreakOptions({
+        enabled: document.getElementById('enableYAxisBreak')?.checked,
+        position: document.getElementById('yAxisBreakPosition')?.value,
+        size: document.getElementById('yAxisBreakSize')?.value,
+        lineWidth: document.getElementById('yAxisBreakLineWidth')?.value,
+        angle: document.getElementById('yAxisBreakAngle')?.value,
+        spacing: document.getElementById('yAxisBreakSpacing')?.value
+    });
+    applyYAxisBreakSettingsToInputs(settings);
+    return settings;
+}
+
+function buildBrokenYAxisMarker(settings, axisX, yScale, yMin, yMax, axisTop, axisBottom, color, mirrorAxisX = null) {
+    const cfg = normalizeYAxisBreakOptions(settings);
+    if (!cfg.enabled) return '';
+    const minValue = Math.min(yMin, yMax);
+    const maxValue = Math.max(yMin, yMax);
+    const clampedPos = clampNumeric(cfg.position, minValue, maxValue, cfg.position);
+    const centerY = yScale(clampedPos);
+    if (!Number.isFinite(centerY)) return '';
+    const safePad = cfg.size * 0.9;
+    if (centerY < axisTop + safePad || centerY > axisBottom - safePad) return '';
+
+    const halfLength = cfg.size / 2;
+    const angleRad = cfg.angle * Math.PI / 180;
+    const dx = Math.cos(angleRad) * halfLength;
+    const dy = Math.sin(angleRad) * halfLength;
+    const normalRad = angleRad + Math.PI / 2;
+    const offsetX = Math.cos(normalRad) * (cfg.spacing / 2);
+    const offsetY = Math.sin(normalRad) * (cfg.spacing / 2);
+    const buildPair = (centerX) => {
+        const a = {
+            x1: centerX - dx + offsetX,
+            y1: centerY + dy + offsetY,
+            x2: centerX + dx + offsetX,
+            y2: centerY - dy + offsetY
+        };
+        const b = {
+            x1: centerX - dx - offsetX,
+            y1: centerY + dy - offsetY,
+            x2: centerX + dx - offsetX,
+            y2: centerY - dy - offsetY
+        };
+        return `
+            <line x1="${a.x1}" y1="${a.y1}" x2="${a.x2}" y2="${a.y2}" />
+            <line x1="${b.x1}" y1="${b.y1}" x2="${b.x2}" y2="${b.y2}" />
+        `;
+    };
+    const mirrors = [];
+    mirrors.push(buildPair(axisX));
+    if (Number.isFinite(mirrorAxisX)) {
+        mirrors.push(buildPair(mirrorAxisX));
+    }
+    return `
+        <g class="y-axis-break-marker"
+           stroke="${color}"
+           fill="none"
+           stroke-width="${cfg.lineWidth}"
+           stroke-linecap="round"
+           shape-rendering="geometricPrecision">
+            ${mirrors.join('')}
+        </g>
+    `;
 }
 
 function getCssVar(name) {
@@ -7239,6 +7397,7 @@ function updatePlot(reflowPass = 0) {
     const yLabelOffset = parseFloat(document.getElementById('yLabelOffset').value) || 0;
     const xAxisFontSize = parseFloat(document.getElementById('xAxisFontSize').value) || fsX;
     const yAxisFontSize = parseFloat(document.getElementById('yAxisFontSize').value) || fsY;
+    const yAxisBreakSettings = readYAxisBreakSettings();
     function applyAutoRotateXLabels() {
         const svgRoot = document.querySelector('#svg-container svg');
         if (!svgRoot) return;
@@ -7387,6 +7546,19 @@ function updatePlot(reflowPass = 0) {
             svgItems.push(`<line x1="${pL}" y1="${y}" x2="${pL-5}" y2="${y}" stroke="${axisColor}" stroke-width="1.2"/>`);
             const labelVal = yAxisPercent ? `${val}%` : val;
             svgItems.push(`<text x="${pL-8}" y="${y}" text-anchor="end" dominant-baseline="central" font-size="${fsY}" font-family="Arial" fill="${axisColor}">${labelVal}</text>`);
+        }
+        const yBreakSurvival = buildBrokenYAxisMarker(
+            yAxisBreakSettings,
+            pL,
+            yScale,
+            0,
+            yMax,
+            pT,
+            height - pB,
+            axisColor
+        );
+        if (yBreakSurvival) {
+            svgItems.push(yBreakSurvival);
         }
 
         const xTickCount = 5;
@@ -7667,6 +7839,19 @@ function updatePlot(reflowPass = 0) {
         const y = yScale(val);
         svgItems.push(`<line x1="${pL}" y1="${y}" x2="${pL-5}" y2="${y}" stroke="${axisColor}" stroke-width="${strokeW}"/>`);
         svgItems.push(`<text x="${pL-8}" y="${y}" text-anchor="end" dominant-baseline="central" font-size="${fsY}" font-family="Arial" fill="${axisColor}">${val}</text>`);
+    }
+    const yBreakMain = buildBrokenYAxisMarker(
+        yAxisBreakSettings,
+        pL,
+        yScale,
+        yMin,
+        yMax,
+        pT,
+        height - pB,
+        axisColor
+    );
+    if (yBreakMain) {
+        svgItems.push(yBreakMain);
     }
     if (xAxisLabel) {
         const xLabelY = height - pB + xAxisFontSize + xLabelOffset + xAxisLabelOffsetY;
