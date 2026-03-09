@@ -1185,6 +1185,12 @@
                     <span style="font-size:0.75rem; color: var(--muted); margin-left:6px;">Font</span>
                     <input type="number" id="yAxisFontSize" value="10" oninput="updatePlot()" style="width:50px;">
                 </div>
+                <div style="display:flex; gap:6px; align-items:center;">
+                    <span style="font-size:0.75rem; color: var(--muted);">Group-X Gap</span>
+                    <button type="button" class="btn-mini" onclick="adjustLabelOffset('groupLabelGap', -2)">-</button>
+                    <input type="number" id="groupLabelGap" value="10" oninput="updatePlot()" style="width:50px;">
+                    <button type="button" class="btn-mini" onclick="adjustLabelOffset('groupLabelGap', 2)">+</button>
+                </div>
             </div>
         </div>
         <div class="master-label-card" id="survivalSection" style="margin-top: 15px; display:none;">
@@ -3941,6 +3947,14 @@ function normalizeProfile(rawProfile) {
     }
     profile.options.yAxisBreak = normalizeYAxisBreakOptions(profile.options.yAxisBreak);
     profile.options.statsMethodVisibility = normalizeStatsMethodVisibility(profile.options.statsMethodVisibility);
+    if (profile.labels && typeof profile.labels === 'object') {
+        if (profile.labels.groupLabelGap === undefined && profile.labels.groupGap !== undefined) {
+            profile.labels.groupLabelGap = profile.labels.groupGap;
+        }
+        if (profile.labels.groupLabelGap === undefined) {
+            profile.labels.groupLabelGap = '10';
+        }
+    }
 
     if (!Array.isArray(profile.groups) && profile.groupData && typeof profile.groupData === 'object') {
         const keys = Object.keys(profile.groupData)
@@ -4066,7 +4080,8 @@ function collectProfile() {
             xOffset: document.getElementById('xLabelOffset').value,
             yOffset: document.getElementById('yLabelOffset').value,
             xFont: document.getElementById('xAxisFontSize').value,
-            yFont: document.getElementById('yAxisFontSize').value
+            yFont: document.getElementById('yAxisFontSize').value,
+            groupLabelGap: document.getElementById('groupLabelGap')?.value || '10'
         },
         style: {
             fontX: document.getElementById('fontSizeX').value,
@@ -4194,6 +4209,8 @@ function applyProfile(profile) {
         document.getElementById('yLabelOffset').value = profile.labels.yOffset || '25';
         document.getElementById('xAxisFontSize').value = profile.labels.xFont || '10';
         document.getElementById('yAxisFontSize').value = profile.labels.yFont || '10';
+        const groupLabelGapEl = document.getElementById('groupLabelGap');
+        if (groupLabelGapEl) groupLabelGapEl.value = profile.labels.groupLabelGap || '10';
     }
     if (profile.style) {
         document.getElementById('fontSizeX').value = profile.style.fontX || '10';
@@ -4473,7 +4490,7 @@ function resetProfile() {
         survival: { xMax: '0', yPercent: false },
         chartSize: { width: '300', height: '200' },
         yAxis: { min: '0', max: '0', ticks: '5', errorType: 'se', autoMax: true },
-        labels: { x: '', y: '', titleItalic: false, titleSize: '10', xOffset: '25', yOffset: '25', xFont: '10', yFont: '10' },
+        labels: { x: '', y: '', titleItalic: false, titleSize: '10', xOffset: '25', yOffset: '25', xFont: '10', yFont: '10', groupLabelGap: '10' },
         style: { fontX: '10', fontY: '10', dotSize: '3', jitter: '8' },
         legend: { show: true, fontSize: '10', state: '95,10' },
         dragOffsets: {
@@ -7397,6 +7414,8 @@ function updatePlot(reflowPass = 0) {
     const yLabelOffset = parseFloat(document.getElementById('yLabelOffset').value) || 0;
     const xAxisFontSize = parseFloat(document.getElementById('xAxisFontSize').value) || fsX;
     const yAxisFontSize = parseFloat(document.getElementById('yAxisFontSize').value) || fsY;
+    const groupLabelGap = parseFloat(document.getElementById('groupLabelGap')?.value);
+    const groupLabelAxisGap = Number.isFinite(groupLabelGap) ? groupLabelGap : 10;
     const yAxisBreakSettings = readYAxisBreakSettings();
     function applyAutoRotateXLabels() {
         const svgRoot = document.querySelector('#svg-container svg');
@@ -7884,7 +7903,7 @@ function updatePlot(reflowPass = 0) {
             if (s.n > 0) {
                 drawGroupContent(x, data, s, group, barWidth, baselineVal, gIdx);
             }
-            const labelY = height - pB + fsX + 10 + (groupLabelOffsetY[gIdx] || 0);
+            const labelY = height - pB + fsX + groupLabelAxisGap + (groupLabelOffsetY[gIdx] || 0);
             svgItems.push(buildRichLabelTextTag(
                 `class="x-axis-label group-label" data-group-index="${gIdx}" x="${x}" y="${labelY}" text-anchor="middle" font-size="${fsX}" font-family="Arial" fill="${axisColor}"`,
                 group.name,
