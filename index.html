@@ -1191,6 +1191,12 @@
                     <input type="number" id="groupLabelGap" value="10" oninput="updatePlot()" style="width:50px;">
                     <button type="button" class="btn-mini" onclick="adjustLabelOffset('groupLabelGap', 2)">+</button>
                 </div>
+                <div style="display:flex; gap:8px; align-items:center;">
+                    <input type="range" id="groupLabelGapSlider" min="-40" max="80" step="1"
+                        value="10"
+                        oninput="const n=document.getElementById('groupLabelGap'); if(n){n.value=this.value;} updatePlot();">
+                    <span style="font-size:0.72rem; color: var(--muted); min-width:48px;">drag</span>
+                </div>
             </div>
         </div>
         <div class="master-label-card" id="survivalSection" style="margin-top: 15px; display:none;">
@@ -4210,7 +4216,10 @@ function applyProfile(profile) {
         document.getElementById('xAxisFontSize').value = profile.labels.xFont || '10';
         document.getElementById('yAxisFontSize').value = profile.labels.yFont || '10';
         const groupLabelGapEl = document.getElementById('groupLabelGap');
-        if (groupLabelGapEl) groupLabelGapEl.value = profile.labels.groupLabelGap || '10';
+        const groupLabelGapSliderEl = document.getElementById('groupLabelGapSlider');
+        const groupGapValue = profile.labels.groupLabelGap || '10';
+        if (groupLabelGapEl) groupLabelGapEl.value = groupGapValue;
+        if (groupLabelGapSliderEl) groupLabelGapSliderEl.value = groupGapValue;
     }
     if (profile.style) {
         document.getElementById('fontSizeX').value = profile.style.fontX || '10';
@@ -7414,8 +7423,15 @@ function updatePlot(reflowPass = 0) {
     const yLabelOffset = parseFloat(document.getElementById('yLabelOffset').value) || 0;
     const xAxisFontSize = parseFloat(document.getElementById('xAxisFontSize').value) || fsX;
     const yAxisFontSize = parseFloat(document.getElementById('yAxisFontSize').value) || fsY;
-    const groupLabelGap = parseFloat(document.getElementById('groupLabelGap')?.value);
-    const groupLabelAxisGap = Number.isFinite(groupLabelGap) ? groupLabelGap : 10;
+    const groupLabelGapInputEl = document.getElementById('groupLabelGap');
+    const groupLabelGapSliderEl = document.getElementById('groupLabelGapSlider');
+    let groupLabelGap = parseFloat(groupLabelGapInputEl?.value);
+    if (!Number.isFinite(groupLabelGap)) {
+        groupLabelGap = parseFloat(groupLabelGapSliderEl?.value);
+    }
+    const groupLabelAxisGap = Math.max(-40, Math.min(80, Number.isFinite(groupLabelGap) ? groupLabelGap : 10));
+    if (groupLabelGapInputEl) groupLabelGapInputEl.value = String(groupLabelAxisGap);
+    if (groupLabelGapSliderEl) groupLabelGapSliderEl.value = String(groupLabelAxisGap);
     const yAxisBreakSettings = readYAxisBreakSettings();
     function applyAutoRotateXLabels() {
         const svgRoot = document.querySelector('#svg-container svg');
