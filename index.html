@@ -367,6 +367,30 @@
             gap: 2px;
         }
         .panel-disabled { opacity: 0.5; pointer-events: none; }
+        .group-gap-list {
+            display: grid;
+            gap: 6px;
+            margin-top: 4px;
+        }
+        .group-gap-row {
+            display: grid;
+            grid-template-columns: minmax(76px, auto) 1fr 54px;
+            gap: 6px;
+            align-items: center;
+        }
+        .group-gap-row .group-gap-name {
+            font-size: 0.72rem;
+            color: var(--muted);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .group-gap-row input[type="range"] { width: 100%; }
+        .group-gap-row input[type="number"] {
+            width: 54px;
+            padding: 4px;
+            font-size: 0.72rem;
+        }
         .y-axis-break-grid {
             display: grid;
             gap: 6px;
@@ -1197,6 +1221,8 @@
                         oninput="const n=document.getElementById('groupLabelGap'); if(n){n.value=this.value;} updatePlot();">
                     <span style="font-size:0.72rem; color: var(--muted); min-width:48px;">drag</span>
                 </div>
+                <div style="font-size:0.72rem; color: var(--muted);">Per-group offset (comparison mode)</div>
+                <div id="groupLabelGapList" class="group-gap-list"></div>
             </div>
         </div>
         <div class="master-label-card" id="survivalSection" style="margin-top: 15px; display:none;">
@@ -3776,6 +3802,79 @@ function ensureGroupLabelOffsets(len) {
     }
 }
 
+function clampGroupLabelOffset(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return 0;
+    return Math.max(-120, Math.min(120, n));
+}
+
+function setGroupLabelGapOffset(index, value) {
+    const i = Number(index);
+    if (!Number.isFinite(i) || i < 0) return;
+    groupLabelOffsetY[i] = clampGroupLabelOffset(value);
+    updatePlot();
+}
+
+function renderGroupLabelGapControls(groupConfigs = []) {
+    const list = document.getElementById('groupLabelGapList');
+    if (!list) return;
+    const configs = Array.isArray(groupConfigs) ? groupConfigs : [];
+    ensureGroupLabelOffsets(configs.length);
+    const signature = configs.map((g, idx) => `${idx}:${g?.name || `Group ${idx + 1}`}`).join('|');
+    const needsRebuild = list.dataset.signature !== signature || list.children.length !== configs.length;
+    if (needsRebuild) {
+        list.innerHTML = '';
+        configs.forEach((group, idx) => {
+            const row = document.createElement('div');
+            row.className = 'group-gap-row';
+            row.dataset.groupGapRow = String(idx);
+            const nameEl = document.createElement('span');
+            nameEl.className = 'group-gap-name';
+            nameEl.title = group.name || `Group ${idx + 1}`;
+            nameEl.textContent = group.name || `Group ${idx + 1}`;
+            const slider = document.createElement('input');
+            slider.type = 'range';
+            slider.min = '-120';
+            slider.max = '120';
+            slider.step = '0.5';
+            slider.dataset.groupGapIndex = String(idx);
+            slider.addEventListener('input', () => {
+                setGroupLabelGapOffset(idx, slider.value);
+            });
+            const number = document.createElement('input');
+            number.type = 'number';
+            number.min = '-120';
+            number.max = '120';
+            number.step = '0.5';
+            number.dataset.groupGapIndex = String(idx);
+            number.addEventListener('input', () => {
+                setGroupLabelGapOffset(idx, number.value);
+            });
+            row.appendChild(nameEl);
+            row.appendChild(slider);
+            row.appendChild(number);
+            list.appendChild(row);
+        });
+        list.dataset.signature = signature;
+    }
+
+    configs.forEach((group, idx) => {
+        const row = list.querySelector(`.group-gap-row[data-group-gap-row="${idx}"]`);
+        if (!row) return;
+        const nameEl = row.querySelector('.group-gap-name');
+        const displayName = group?.name || `Group ${idx + 1}`;
+        if (nameEl) {
+            nameEl.textContent = displayName;
+            nameEl.title = displayName;
+        }
+        const value = clampGroupLabelOffset(groupLabelOffsetY[idx] || 0);
+        const slider = row.querySelector('input[type="range"]');
+        const number = row.querySelector('input[type="number"]');
+        if (slider) slider.value = String(value);
+        if (number) number.value = Number(value.toFixed(1)).toString();
+    });
+}
+
 function snapshotBarState() {
     return { offsets: groupOffsetX.slice(), barWidth: barWidthState };
 }
@@ -4565,6 +4664,12 @@ function resetProfile() {
 }
 
 function removeGroup(id) {
+    const cards = Array.from(document.querySelectorAll('.group-card'));
+    const removeIdx = cards.findIndex(card => card.id === id);
+    if (removeIdx >= 0) {
+        if (removeIdx < groupOffsetX.length) groupOffsetX.splice(removeIdx, 1);
+        if (removeIdx < groupLabelOffsetY.length) groupLabelOffsetY.splice(removeIdx, 1);
+    }
     const el = document.getElementById(id);
     if (el) el.remove();
     renumberGroups();
@@ -7537,6 +7642,7 @@ function updatePlot(reflowPass = 0) {
     if (survivalMode) {
         renderManualBracketSelect([]);
         const { groupConfigs, maxTime } = parseSurvivalData(document.getElementById('survivalData').value);
+        renderGroupLabelGapControls([]);
         const xMaxEl = document.getElementById('survivalXMax');
         const xMaxInput = parseFloat(xMaxEl.value);
         const isAutoX = xMaxEl.dataset.auto !== 'false';
@@ -7711,6 +7817,7 @@ function updatePlot(reflowPass = 0) {
     const nGroups = groupConfigs.length;
     ensureGroupOffsets(nGroups);
     ensureGroupLabelOffsets(nGroups);
+    renderGroupLabelGapControls(groupConfigs);
     const getCompCenter = (gIdx) => pL + (gIdx + 0.5) * (graphW / nGroups) + (groupOffsetX[gIdx] || 0);
     const getTimeCenter = (tIdx, gIdx, groupSpace) => {
         const base = pL + (tIdx + 0.5) * (graphW / timeLabels.length);
