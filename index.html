@@ -886,6 +886,12 @@
             gap: 10px;
         }
         .graph-controls-row .legend-panel { margin: 0; width: 100%; box-shadow: none; }
+        #sigControlsPanel { grid-column: span 2; }
+        #manualBracketPanel { min-width: 320px; }
+        #manualBracketSelect {
+            min-height: 220px;
+            font-size: 0.7rem;
+        }
         .axis-label { cursor: move; user-select: none; }
         .theme-toggle {
             display: flex;
@@ -1309,7 +1315,7 @@
                             <button type="button" class="btn-mini" style="width:auto;" onclick="redoBarChanges()">Redo</button>
                         </div>
                     </div>
-                    <div class="panel legend-panel">
+                    <div class="panel legend-panel" id="sigControlsPanel">
                         <div class="option-list">
                             <label style="font-weight: normal;"><input type="checkbox" id="showPostHoc" onchange="updatePlot()"> Show Post-hoc / Pairwise</label>
                             <label style="font-weight: normal;"><input type="checkbox" id="autoBrackets" onchange="updatePlot()" checked> Auto Brackets (*)</label>
@@ -1346,7 +1352,7 @@
                         </div>
                         <div class="control-item" id="manualBracketPanel" style="display:none;">
                             <label for="manualBracketSelect">Manual Comparisons</label>
-                            <select id="manualBracketSelect" multiple size="7" onchange="syncManualBracketSelectionFromUI(); updatePlot()"></select>
+                            <select id="manualBracketSelect" multiple size="10" onchange="syncManualBracketSelectionFromUI(); updatePlot()"></select>
                             <div style="display:flex; gap:6px; margin-top:6px;">
                                 <button type="button" class="btn-mini" style="width:auto;" onclick="selectSignificantBrackets()">Select Significant</button>
                                 <button type="button" class="btn-mini" style="width:auto;" onclick="clearManualBracketSelection()">Clear</button>
@@ -5587,7 +5593,8 @@ function renderManualBracketSelect(options) {
         const el = document.createElement('option');
         el.value = opt.key;
         const pText = opt.p === null || opt.p === undefined ? 'p=-' : (opt.p < 0.0001 ? 'p<0.0001' : `p=${opt.p.toFixed(4)}`);
-        el.textContent = `${opt.label} | ${pText}${opt.stars ? ` | ${opt.stars}` : ''}`;
+        const methodText = opt.methodLabel ? ` | method=${opt.methodLabel}` : '';
+        el.textContent = `${opt.label} | ${pText}${opt.stars ? ` | ${opt.stars}` : ''}${methodText}`;
         el.selected = manualBracketSelection.has(opt.key);
         select.appendChild(el);
     });
@@ -7848,7 +7855,8 @@ function updatePlot(reflowPass = 0) {
                 label: `${groupEntries[0].name} vs ${groupEntries[1].name}`,
                 p: sigDecision.p,
                 isSig: sigDecision.isSig,
-                stars: sigDecision.stars
+                stars: sigDecision.stars,
+                methodLabel: sigDecision.usedLabel || sigDecision.sourceLabel
             }];
         } else {
             const a = oneWayANOVA(groupsData);
@@ -7868,7 +7876,8 @@ function updatePlot(reflowPass = 0) {
                     label: r.label,
                     p: r.p,
                     isSig: r.isSig,
-                    stars: r.stars
+                    stars: r.stars,
+                    methodLabel: r.usedLabel || sigDecision.sourceLabel
                 }));
             }
         }
@@ -7880,7 +7889,8 @@ function updatePlot(reflowPass = 0) {
                 label: `${label}: ${row.label}`,
                 p: row.p,
                 stars: row.stars,
-                isSig: row.isSig
+                isSig: row.isSig,
+                methodLabel: row.methodLabel || getSigSourceLabel(sigSource)
             });
             return { ...row, key };
         });
