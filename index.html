@@ -1340,7 +1340,7 @@
                                 </optgroup>
                             </select>
                             <div style="font-size:0.72rem; color: var(--muted); margin-top:4px;">
-                                Choose which statistical result controls stars (* <0.05, ** <0.01, *** <0.001, **** <0.0001).
+                                Choose which statistical result controls stars (* <0.05, ** <0.01, *** <0.001).
                             </div>
                         </div>
                         <div class="control-item">
@@ -5341,6 +5341,13 @@ function getSummaryStars(p) {
     return '';
 }
 
+function getManualPlotStars(currentStars, p, isSig) {
+    if (!isSig) return '';
+    const raw = String(currentStars || '').replace(/[^*]/g, '');
+    if (raw) return raw.length >= 3 ? '***' : raw;
+    return getSummaryStars(p) || '*';
+}
+
 function summarizeMethodSignificance(rows = []) {
     const summary = { total: 0, one: 0, two: 0, three: 0 };
     rows.forEach((row) => {
@@ -7884,15 +7891,16 @@ function updatePlot(reflowPass = 0) {
 
         const keyedRows = rows.map((row) => {
             const key = `${tIdx}|${row.fromIdx}|${row.toIdx}|${sigSource}`;
+            const stars = getManualPlotStars(row.stars, row.p, row.isSig);
             bracketOptions.push({
                 key,
                 label: `${label}: ${row.label}`,
                 p: row.p,
-                stars: row.stars,
+                stars,
                 isSig: row.isSig,
                 methodLabel: row.methodLabel || getSigSourceLabel(sigSource)
             });
-            return { ...row, key };
+            return { ...row, stars, key };
         });
         bracketRowsByTime.set(tIdx, { groupEntries, rows: keyedRows, sigSource });
 
