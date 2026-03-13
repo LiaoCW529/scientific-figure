@@ -5348,6 +5348,10 @@ function getManualPlotStars(currentStars, p, isSig) {
     return getSummaryStars(p) || '*';
 }
 
+function isManualBracketSignificant(option) {
+    return isValidPValue(option?.p) && option.p < 0.05;
+}
+
 function summarizeMethodSignificance(rows = []) {
     const summary = { total: 0, one: 0, two: 0, three: 0 };
     rows.forEach((row) => {
@@ -5592,8 +5596,8 @@ function renderManualBracketSelect(options) {
     if (!select) return;
     latestBracketOptions = Array.isArray(options) ? options.slice() : [];
 
-    const availableKeys = new Set(latestBracketOptions.map(o => o.key));
-    manualBracketSelection = new Set(Array.from(manualBracketSelection).filter(k => availableKeys.has(k)));
+    const selectableKeys = new Set(latestBracketOptions.filter(isManualBracketSignificant).map(o => o.key));
+    manualBracketSelection = new Set(Array.from(manualBracketSelection).filter(k => selectableKeys.has(k)));
 
     select.innerHTML = '';
     latestBracketOptions.forEach((opt) => {
@@ -5601,7 +5605,9 @@ function renderManualBracketSelect(options) {
         el.value = opt.key;
         const pText = opt.p === null || opt.p === undefined ? 'p=-' : (opt.p < 0.0001 ? 'p<0.0001' : `p=${opt.p.toFixed(4)}`);
         const methodText = opt.methodLabel ? ` | method=${opt.methodLabel}` : '';
-        el.textContent = `${opt.label} | ${pText}${opt.stars ? ` | ${opt.stars}` : ''}${methodText}`;
+        const isSelectable = isManualBracketSignificant(opt);
+        el.textContent = `${opt.label} | ${pText}${opt.stars ? ` | ${opt.stars}` : ''}${methodText}${isSelectable ? '' : ' | NS'}`;
+        el.disabled = !isSelectable;
         el.selected = manualBracketSelection.has(opt.key);
         select.appendChild(el);
     });
@@ -5610,14 +5616,14 @@ function renderManualBracketSelect(options) {
         if (!latestBracketOptions.length) {
             hint.textContent = 'No available comparisons at current settings.';
         } else {
-            const sigCount = latestBracketOptions.filter(o => o.isSig).length;
-            hint.textContent = `${latestBracketOptions.length} comparisons, ${sigCount} significant. Hold Ctrl/Shift to multi-select.`;
+            const sigCount = latestBracketOptions.filter(isManualBracketSignificant).length;
+            hint.textContent = `${latestBracketOptions.length} comparisons, ${sigCount} significant/selectable. Hold Ctrl/Shift to multi-select.`;
         }
     }
 }
 
 function selectSignificantBrackets() {
-    manualBracketSelection = new Set(latestBracketOptions.filter(o => o.isSig).map(o => o.key));
+    manualBracketSelection = new Set(latestBracketOptions.filter(isManualBracketSignificant).map(o => o.key));
     renderManualBracketSelect(latestBracketOptions);
     updatePlot();
 }
@@ -7905,7 +7911,7 @@ function updatePlot(reflowPass = 0) {
         bracketRowsByTime.set(tIdx, { groupEntries, rows: keyedRows, sigSource });
 
         const drawRows = bracketSelectionMode === 'manual'
-            ? keyedRows.filter(row => manualBracketSelection.has(row.key))
+            ? keyedRows.filter(row => manualBracketSelection.has(row.key) && isManualBracketSignificant(row))
             : keyedRows.filter(row => row.isSig);
         maxBracketLayers = Math.max(maxBracketLayers, drawRows.length);
     });
@@ -8158,7 +8164,7 @@ function updatePlot(reflowPass = 0) {
             const rows = cache.rows || [];
             const groupsData = groupEntries.map(entry => entry.data);
             const drawRows = bracketSelectionMode === 'manual'
-                ? rows.filter(row => manualBracketSelection.has(row.key))
+                ? rows.filter(row => manualBracketSelection.has(row.key) && isManualBracketSignificant(row))
                 : rows.filter(row => row.isSig);
             if (!drawRows.length) return;
 
