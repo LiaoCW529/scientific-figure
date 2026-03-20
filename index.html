@@ -1332,7 +1332,9 @@
                                 <optgroup label="3+ groups">
                                     <option value="anova">ANOVA (global)</option>
                                     <option value="dunnett">Dunnett (post-hoc)</option>
+                                    <option value="tukey">Tukey-Kramer (all pairs)</option>
                                     <option value="anova_dunnett">ANOVA + Dunnett (both)</option>
+                                    <option value="anova_tukey">ANOVA + Tukey-Kramer (both)</option>
                                     <option value="pairwise_either">Pairwise Either (all pairs)</option>
                                     <option value="pairwise_welch">Pairwise Welch (all pairs)</option>
                                     <option value="pairwise_brunner">Pairwise Brunner-Munzel (all pairs)</option>
@@ -1747,6 +1749,7 @@ const STATS_METHOD_ORDER = [
     'brunner',
     'anova',
     'dunnett',
+    'tukey',
     'pairwise_either',
     'pairwise_welch',
     'pairwise_brunner'
@@ -3987,11 +3990,19 @@ function normalizeSigSourceValue(value) {
         brunnermunzel: 'brunner',
         anova: 'anova',
         dunnett: 'dunnett',
+        tukey: 'tukey',
+        'tukey hsd': 'tukey',
+        'tukey-kramer': 'tukey',
+        'tukey kramer': 'tukey',
         posthoc: 'dunnett',
         'post-hoc': 'dunnett',
         anova_dunnett: 'anova_dunnett',
         'anova+dunnett': 'anova_dunnett',
         'anova & dunnett': 'anova_dunnett',
+        anova_tukey: 'anova_tukey',
+        'anova+tukey': 'anova_tukey',
+        'anova + tukey': 'anova_tukey',
+        'anova & tukey': 'anova_tukey',
         pairwise_either: 'pairwise_either',
         pairwise: 'pairwise_either',
         'pairwise either': 'pairwise_either',
@@ -4354,7 +4365,9 @@ function applyProfile(profile) {
                 'brunner',
                 'anova',
                 'dunnett',
+                'tukey',
                 'anova_dunnett',
+                'anova_tukey',
                 'pairwise_either',
                 'pairwise_welch',
                 'pairwise_brunner',
@@ -5311,6 +5324,37 @@ function runDunnett(groupsData, msWithin, dfWithin) {
 }
 
 // 自由度dfのt刁EE積E币E数 (簡易近似)
+function runTukeyComparisons(groupsData, msWithin, dfWithin) {
+    const results = [];
+    const pairCount = Math.max(1, (groupsData.length * (groupsData.length - 1)) / 2);
+    for (let i = 0; i < groupsData.length; i++) {
+        for (let j = i + 1; j < groupsData.length; j++) {
+            const a = groupsData[i] || [];
+            const b = groupsData[j] || [];
+            if (a.length < 2 || b.length < 2) continue;
+            const meanA = a.reduce((sum, v) => sum + v, 0) / a.length;
+            const meanB = b.reduce((sum, v) => sum + v, 0) / b.length;
+            const se = Math.sqrt((msWithin / 2) * ((1 / a.length) + (1 / b.length)));
+            if (!Number.isFinite(se) || se <= 0) continue;
+            const q = Math.abs(meanA - meanB) / se;
+            const tApprox = q / Math.SQRT2;
+            const rawP = 2 * (1 - studentTCDF(tApprox, dfWithin));
+            const adjustedP = Math.min(1, rawP * pairCount);
+            results.push({
+                fromIdx: i,
+                toIdx: j,
+                p: adjustedP,
+                q,
+                used: 'tukey',
+                usedLabel: getSigSourceLabel('tukey'),
+                isSig: adjustedP < 0.05,
+                stars: adjustedP < 0.05 ? getStars(adjustedP) : ''
+            });
+        }
+    }
+    return results;
+}
+
 function studentTCDF(t, df) {
     const x = df / (df + t * t);
     return 1 - 0.5 * ibeta(x, df / 2, 0.5);
@@ -5397,7 +5441,9 @@ function getSigSourceLabel(source) {
         brunner: "Brunner-Munzel",
         anova: "ANOVA",
         dunnett: "Dunnett",
+        tukey: "Tukey-Kramer",
         anova_dunnett: "ANOVA + Dunnett",
+        anova_tukey: "ANOVA + Tukey-Kramer",
         pairwise_either: "Pairwise Either",
         pairwise_welch: "Pairwise Welch",
         pairwise_brunner: "Pairwise Brunner-Munzel",
@@ -5420,7 +5466,9 @@ function resolveSigSourceForGroupCount(groupCount, source = getTwoGroupSigSource
     return (
         source === 'anova'
         || source === 'dunnett'
+        || source === 'tukey'
         || source === 'anova_dunnett'
+        || source === 'anova_tukey'
         || source === 'pairwise_either'
         || source === 'pairwise_welch'
         || source === 'pairwise_brunner'
@@ -5511,7 +5559,7 @@ function runPairwiseComparisons(groupsData, method = 'either') {
     return rows;
 }
 
-function getMultiGroupSigDecision(anovaP, dunnettRes, pairwiseRows, filteredGroups = [], source = resolveSigSourceForGroupCount(3, getTwoGroupSigSource())) {
+function getMultiGroupSigDecision(anovaP, dunnettRes, pairwiseRows, tukeyRows, filteredGroups = [], source = resolveSigSourceForGroupCount(3, getTwoGroupSigSource())) {
     const validAnovaP = isValidPValue(anovaP) ? anovaP : null;
     const dunnettRows = (dunnettRes || []).map((res, idx) => {
         const p = isValidPValue(res?.p) ? res.p : null;
@@ -5521,7 +5569,9 @@ function getMultiGroupSigDecision(anovaP, dunnettRes, pairwiseRows, filteredGrou
             fromIdx: 0,
             toIdx: idx + 1,
             label: `${controlLabel} vs ${targetLabel}`,
-            p
+            p,
+            used: 'dunnett',
+            usedLabel: getSigSourceLabel('dunnett')
         };
     });
     const pairRows = (pairwiseRows || []).map((row) => {
@@ -5530,6 +5580,16 @@ function getMultiGroupSigDecision(anovaP, dunnettRes, pairwiseRows, filteredGrou
         return {
             ...row,
             label: `${fromLabel} vs ${toLabel}`
+        };
+    });
+    const tukeyDecisionRows = (tukeyRows || []).map((row) => {
+        const fromLabel = filteredGroups[row.fromIdx]?.name || `Group ${row.fromIdx + 1}`;
+        const toLabel = filteredGroups[row.toIdx]?.name || `Group ${row.toIdx + 1}`;
+        return {
+            ...row,
+            label: `${fromLabel} vs ${toLabel}`,
+            used: row.used || 'tukey',
+            usedLabel: row.usedLabel || getSigSourceLabel('tukey')
         };
     });
 
@@ -5543,9 +5603,20 @@ function getMultiGroupSigDecision(anovaP, dunnettRes, pairwiseRows, filteredGrou
             const isSig = r.p !== null && r.p < 0.05;
             return { ...r, isSig, stars: isSig ? getStars(r.p) : '' };
         });
+    } else if (source === 'tukey') {
+        decisionRows = tukeyDecisionRows.map((r) => {
+            const isSig = r.p !== null && r.p < 0.05;
+            return { ...r, isSig, stars: isSig ? getStars(r.p) : '' };
+        });
     } else if (source === 'pairwise_welch' || source === 'pairwise_brunner' || source === 'pairwise_either') {
         decisionRows = pairRows.map((r) => {
             const isSig = r.p !== null && r.p < 0.05;
+            return { ...r, isSig, stars: isSig ? getStars(r.p) : '' };
+        });
+    } else if (source === 'anova_tukey') {
+        const anovaSig = validAnovaP !== null && validAnovaP < 0.05;
+        decisionRows = tukeyDecisionRows.map((r) => {
+            const isSig = anovaSig && r.p !== null && r.p < 0.05;
             return { ...r, isSig, stars: isSig ? getStars(r.p) : '' };
         });
     } else if (source === 'anova_pairwise') {
@@ -7105,6 +7176,7 @@ function displayStats(timeLabels, groupConfigs) {
             if (aRes) {
                 const anovaP = fDistributionP(aRes.f, aRes.df1, aRes.df2);
                 const dunnettRes = runDunnett(groupsData, aRes.msWithin, aRes.df2);
+                const tukeyRows = runTukeyComparisons(groupsData, aRes.msWithin, aRes.df2);
                 const sigSource = resolveSigSourceForGroupCount(groupsData.length, selectedSigSource);
                 const pairMethod = sigSource === 'pairwise_welch'
                     ? 'welch'
@@ -7112,7 +7184,7 @@ function displayStats(timeLabels, groupConfigs) {
                         ? 'brunner'
                         : 'either';
                 const pairwiseRowsForDecision = runPairwiseComparisons(groupsData, pairMethod);
-                const sigDecision = getMultiGroupSigDecision(anovaP, dunnettRes, pairwiseRowsForDecision, filteredGroups, sigSource);
+                const sigDecision = getMultiGroupSigDecision(anovaP, dunnettRes, pairwiseRowsForDecision, tukeyRows, filteredGroups, sigSource);
                 pushMethodRecord('anova', {
                     timeLabel: label,
                     timeIndex: tIdx,
@@ -7128,6 +7200,17 @@ function displayStats(timeLabels, groupConfigs) {
                         comparison: `${filteredGroups[0].name} vs ${targetName}`,
                         p: r?.p ?? null,
                         note: 'Dunnett vs control'
+                    });
+                });
+                tukeyRows.forEach((r) => {
+                    const aName = filteredGroups[r.fromIdx]?.name || `Group ${r.fromIdx + 1}`;
+                    const bName = filteredGroups[r.toIdx]?.name || `Group ${r.toIdx + 1}`;
+                    pushMethodRecord('tukey', {
+                        timeLabel: label,
+                        timeIndex: tIdx,
+                        comparison: `${aName} vs ${bName}`,
+                        p: r.p,
+                        note: Number.isFinite(r.q) ? `Tukey-Kramer approx, q=${r.q.toFixed(3)}` : 'Tukey-Kramer approx'
                     });
                 });
                 const pairwiseEitherRows = runPairwiseComparisons(groupsData, 'either');
@@ -7171,6 +7254,12 @@ function displayStats(timeLabels, groupConfigs) {
                 dunnettRes.forEach((r, idx) => {
                     const targetName = filteredGroups[idx + 1]?.name || `Group ${idx + 2}`;
                     detailParts.push(`Dunnett vs Ctrl -> ${targetName}: p=${formatPPreciseWithDecimal(r.p)}`);
+                });
+                tukeyRows.forEach((r) => {
+                    const aName = filteredGroups[r.fromIdx]?.name || `Group ${r.fromIdx + 1}`;
+                    const bName = filteredGroups[r.toIdx]?.name || `Group ${r.toIdx + 1}`;
+                    const qText = Number.isFinite(r.q) ? `, q=${r.q.toFixed(3)}` : '';
+                    detailParts.push(`Tukey-Kramer (approx) -> ${aName} vs ${bName}: p=${formatPPreciseWithDecimal(r.p)}${qText}`);
                 });
                 pairWelchRows.forEach((r) => {
                     const aName = filteredGroups[r.fromIdx]?.name || `Group ${r.fromIdx + 1}`;
@@ -7876,13 +7965,14 @@ function updatePlot(reflowPass = 0) {
             if (a) {
                 const anovaP = fDistributionP(a.f, a.df1, a.df2);
                 const dunnettRes = runDunnett(groupsData, a.msWithin, a.df2);
+                const tukeyRows = runTukeyComparisons(groupsData, a.msWithin, a.df2);
                 const pairMethod = sigSource === 'pairwise_welch'
                     ? 'welch'
                     : sigSource === 'pairwise_brunner'
                         ? 'brunner'
                         : 'either';
                 const pairwiseRows = runPairwiseComparisons(groupsData, pairMethod);
-                const sigDecision = getMultiGroupSigDecision(anovaP, dunnettRes, pairwiseRows, groupEntries, sigSource);
+                const sigDecision = getMultiGroupSigDecision(anovaP, dunnettRes, pairwiseRows, tukeyRows, groupEntries, sigSource);
                 rows = sigDecision.rows.map(r => ({
                     fromIdx: r.fromIdx,
                     toIdx: r.toIdx,
