@@ -2692,6 +2692,12 @@ function updateExplorerSelectionHighlight(table) {
     });
 }
 
+function clearExplorerSelection() {
+    explorerSelecting = false;
+    explorerSelection = null;
+    updateExplorerSelectionHighlight();
+}
+
 function handleExplorerMouseUp(e) {
     if (!explorerSelecting) return;
     explorerSelecting = false;
@@ -2939,6 +2945,7 @@ function getExplorerSelectionMatrix() {
 function stageExplorerTimeLabels(replace = true) {
     const values = getExplorerSelectionValues();
     if (!values.length) return;
+    collectStagedGroupsFromUI();
     if (replace) {
         stagedTimeLabels = values;
     } else {
@@ -2949,6 +2956,7 @@ function stageExplorerTimeLabels(replace = true) {
     renderStagedGroups();
     renderExplorerTimeSelect();
     hideExplorerMenu();
+    clearExplorerSelection();
 }
 
 function mergeTimeGroupData(existingText, matrix) {
@@ -3033,6 +3041,7 @@ function hideExplorerMenu() {
 
 function sendExplorerToGroup(groupNumber) {
     if (!explorerData || !explorerSelection) return;
+    collectStagedGroupsFromUI();
     const idxInput = document.getElementById('explorerGroupIndexMenu');
     const targetGroup = groupNumber || (idxInput ? parseInt(idxInput.value, 10) : 1);
     if (!targetGroup || targetGroup < 1) return;
@@ -3092,10 +3101,12 @@ function sendExplorerToGroup(groupNumber) {
     renderExplorerTimeSelect();
     renderExplorerTree(explorerFiles);
     hideExplorerMenu();
+    clearExplorerSelection();
 }
 
 function sendExplorerToGroupName(groupNumber) {
     if (!explorerData || !explorerSelection) return;
+    collectStagedGroupsFromUI();
     if (explorerSelection.r1 !== explorerSelection.r2 || explorerSelection.c1 !== explorerSelection.c2) {
         showToast('Select a single cell to set a group name.');
         return;
@@ -3121,6 +3132,7 @@ function sendExplorerToGroupName(groupNumber) {
     renderStagedGroups();
     renderExplorerMenuGroups();
     hideExplorerMenu();
+    clearExplorerSelection();
 }
 
 function sendExplorerToTitle() {
@@ -3138,6 +3150,7 @@ function sendExplorerToTitle() {
     updateExplorerTitleDisplay();
     updatePlot();
     hideExplorerMenu();
+    clearExplorerSelection();
 }
 
 function applyStagedGroups() {
