@@ -1323,7 +1323,7 @@
                         <div class="control-item">
                             <label for="twoGroupSigSource">Significance source</label>
                             <select id="twoGroupSigSource" onchange="updatePlot()">
-                                <option value="auto" selected>Auto (2-group: Either / 3+ groups: Pairwise Either)</option>
+                                <option value="auto" selected>Auto (2-group: Either + Holm across time / 3+ groups: Pairwise Either + Holm)</option>
                                 <optgroup label="2-group">
                                     <option value="either">Either (Welch or Brunner-Munzel)</option>
                                     <option value="welch">Welch t-test</option>
@@ -1335,10 +1335,10 @@
                                     <option value="tukey">Tukey-Kramer (all pairs)</option>
                                     <option value="anova_dunnett">ANOVA + Dunnett (both)</option>
                                     <option value="anova_tukey">ANOVA + Tukey-Kramer (both)</option>
-                                    <option value="pairwise_either">Pairwise Either (all pairs)</option>
-                                    <option value="pairwise_welch">Pairwise Welch (all pairs)</option>
-                                    <option value="pairwise_brunner">Pairwise Brunner-Munzel (all pairs)</option>
-                                    <option value="anova_pairwise">ANOVA + Pairwise Either (both)</option>
+                                    <option value="pairwise_either">Pairwise Either (Holm-adjusted)</option>
+                                    <option value="pairwise_welch">Pairwise Welch (Holm-adjusted)</option>
+                                    <option value="pairwise_brunner">Pairwise Brunner-Munzel (Holm-adjusted)</option>
+                                    <option value="anova_pairwise">ANOVA + Pairwise Either (Holm)</option>
                                 </optgroup>
                             </select>
                             <div style="font-size:0.72rem; color: var(--muted); margin-top:4px;">
@@ -5546,6 +5546,7 @@ function getStars(p) {
 
 function getSummaryStarTier(p) {
     if (!isValidPValue(p)) return 0;
+    if (p < 0.0001) return 4;
     if (p < 0.001) return 3;
     if (p < 0.01) return 2;
     if (p < 0.05) return 1;
@@ -5553,18 +5554,12 @@ function getSummaryStarTier(p) {
 }
 
 function getSummaryStars(p) {
-    const tier = getSummaryStarTier(p);
-    if (tier === 3) return '***';
-    if (tier === 2) return '**';
-    if (tier === 1) return '*';
-    return '';
+    return getStars(p);
 }
 
 function getManualPlotStars(currentStars, p, isSig) {
-    if (!isSig) return '';
-    const raw = String(currentStars || '').replace(/[^*]/g, '');
-    if (raw) return raw.length >= 3 ? '***' : raw;
-    return getSummaryStars(p) || '*';
+    if (!isSig || !isValidPValue(p)) return '';
+    return getStars(p);
 }
 
 function isManualBracketSignificant(option) {
@@ -5572,12 +5567,13 @@ function isManualBracketSignificant(option) {
 }
 
 function summarizeMethodSignificance(rows = []) {
-    const summary = { total: 0, one: 0, two: 0, three: 0 };
+    const summary = { total: 0, one: 0, two: 0, three: 0, four: 0 };
     rows.forEach((row) => {
         const tier = getSummaryStarTier(row?.p);
         if (tier === 1) summary.one += 1;
         if (tier === 2) summary.two += 1;
         if (tier === 3) summary.three += 1;
+        if (tier === 4) summary.four += 1;
         if (tier > 0) summary.total += 1;
     });
     return summary;
@@ -5619,10 +5615,10 @@ function getSigSourceLabel(source) {
         tukey: "Tukey-Kramer",
         anova_dunnett: "ANOVA + Dunnett",
         anova_tukey: "ANOVA + Tukey-Kramer",
-        pairwise_either: "Pairwise Either",
-        pairwise_welch: "Pairwise Welch",
-        pairwise_brunner: "Pairwise Brunner-Munzel",
-        anova_pairwise: "ANOVA + Pairwise Either",
+        pairwise_either: "Pairwise Either (Holm)",
+        pairwise_welch: "Pairwise Welch (Holm)",
+        pairwise_brunner: "Pairwise Brunner-Munzel (Holm)",
+        anova_pairwise: "ANOVA + Pairwise Either (Holm)",
         repeated_baseline: "Repeated vs baseline (paired Holm)",
         repeated_pairwise: "Repeated all-pairs (paired Holm)"
     };
@@ -5691,6 +5687,67 @@ function getTwoGroupSigDecision(welchRes, bmRes, source = resolveSigSourceForGro
     };
 }
 
+function computeTwoGroupTimeSeriesDecisions(groupConfigs, timeLabels, source = getTwoGroupSigSource()) {
+    const rawRows = [];
+    (timeLabels || []).forEach((label, tIdx) => {
+        const filteredGroups = (groupConfigs || []).filter(g => ((g.data || [])[tIdx] || []).length > 1);
+        if (filteredGroups.length !== 2) return;
+        const left = filteredGroups[0]?.data?.[tIdx] || [];
+        const right = filteredGroups[1]?.data?.[tIdx] || [];
+        const sigSource = resolveSigSourceForGroupCount(2, source);
+        const welchRes = welchTTest(left, right);
+        const bmRes = brunnerMunzel(left, right);
+        const decision = getTwoGroupSigDecision(welchRes, bmRes, sigSource);
+        if (!isValidPValue(decision.p)) return;
+        rawRows.push({
+            timeIndex: tIdx,
+            timeLabel: label,
+            leftName: filteredGroups[0]?.name || 'Group 1',
+            rightName: filteredGroups[1]?.name || 'Group 2',
+            rawP: decision.p,
+            source: decision.source,
+            sourceLabel: decision.sourceLabel,
+            used: decision.used,
+            usedLabel: decision.usedLabel
+        });
+    });
+    const adjustedRows = holmAdjustRows(rawRows).map((row) => {
+        const adjustedP = isValidPValue(row.adjustedP) ? row.adjustedP : row.rawP;
+        const isSig = isValidPValue(adjustedP) && adjustedP < 0.05;
+        return {
+            ...row,
+            p: adjustedP,
+            isSig,
+            stars: isSig ? getStars(adjustedP) : '',
+            correction: 'holm',
+            correctionLabel: 'Holm-adjusted across time points'
+        };
+    });
+    return new Map(adjustedRows.map(row => [row.timeIndex, row]));
+}
+
+function computeTwoGroupTimeSeriesMethodMap(groupConfigs, timeLabels, methodKey = 'welch') {
+    const rawRows = [];
+    (timeLabels || []).forEach((label, tIdx) => {
+        const filteredGroups = (groupConfigs || []).filter(g => ((g.data || [])[tIdx] || []).length > 1);
+        if (filteredGroups.length !== 2) return;
+        const left = filteredGroups[0]?.data?.[tIdx] || [];
+        const right = filteredGroups[1]?.data?.[tIdx] || [];
+        const result = methodKey === 'brunner' ? brunnerMunzel(left, right) : welchTTest(left, right);
+        const rawP = result && isValidPValue(result.p) ? result.p : null;
+        if (!isValidPValue(rawP)) return;
+        rawRows.push({ timeIndex: tIdx, rawP });
+    });
+    return new Map(holmAdjustRows(rawRows).map((row) => [
+        row.timeIndex,
+        {
+            rawP: row.rawP,
+            p: isValidPValue(row.adjustedP) ? row.adjustedP : row.rawP,
+            correctionLabel: 'Holm-adjusted across time points'
+        }
+    ]));
+}
+
 function runPairwiseComparisons(groupsData, method = 'either') {
     const rows = [];
     for (let i = 0; i < groupsData.length; i++) {
@@ -5702,13 +5759,13 @@ function runPairwiseComparisons(groupsData, method = 'either') {
             const bm = brunnerMunzel(a, b);
             const welchP = welch && isValidPValue(welch.p) ? welch.p : null;
             const brunnerP = bm && isValidPValue(bm.p) ? bm.p : null;
-            let p = null;
+            let rawP = null;
             let used = method;
 
             if (method === 'welch') {
-                p = welchP;
+                rawP = welchP;
             } else if (method === 'brunner') {
-                p = brunnerP;
+                rawP = brunnerP;
             } else {
                 const candidates = [];
                 if (welchP !== null) candidates.push({ key: 'welch', p: welchP });
@@ -5717,7 +5774,7 @@ function runPairwiseComparisons(groupsData, method = 'either') {
                     const sigCandidates = candidates.filter(c => c.p < 0.05);
                     const pool = sigCandidates.length ? sigCandidates : candidates;
                     pool.sort((a1, b1) => a1.p - b1.p);
-                    p = pool[0].p;
+                    rawP = pool[0].p;
                     used = pool[0].key;
                 }
             }
@@ -5725,15 +5782,24 @@ function runPairwiseComparisons(groupsData, method = 'either') {
             rows.push({
                 fromIdx: i,
                 toIdx: j,
-                p,
+                rawP,
                 used,
-                usedLabel: getSigSourceLabel(used),
-                isSig: p !== null && p < 0.05,
-                stars: p !== null ? getStars(p) : ""
+                usedLabel: getSigSourceLabel(used)
             });
         }
     }
-    return rows;
+    return holmAdjustRows(rows).map((row) => {
+        const adjustedP = isValidPValue(row.adjustedP) ? row.adjustedP : (isValidPValue(row.rawP) ? row.rawP : null);
+        const isSig = adjustedP !== null && adjustedP < 0.05;
+        return {
+            ...row,
+            p: adjustedP,
+            correction: 'holm',
+            correctionLabel: 'Holm-adjusted',
+            isSig,
+            stars: isSig ? getStars(adjustedP) : ""
+        };
+    });
 }
 
 function getMultiGroupSigDecision(anovaP, dunnettRes, pairwiseRows, tukeyRows, filteredGroups = [], source = resolveSigSourceForGroupCount(3, getTwoGroupSigSource())) {
@@ -7316,6 +7382,9 @@ function displayStats(timeLabels, groupConfigs) {
         if (!methodRecords[methodKey]) return;
         methodRecords[methodKey].push(record);
     };
+    const twoGroupTimeDecisions = computeTwoGroupTimeSeriesDecisions(groupConfigs, timeLabels, selectedSigSource);
+    const twoGroupWelchMap = computeTwoGroupTimeSeriesMethodMap(groupConfigs, timeLabels, 'welch');
+    const twoGroupBrunnerMap = computeTwoGroupTimeSeriesMethodMap(groupConfigs, timeLabels, 'brunner');
 
     timeLabels.forEach((label, tIdx) => {
         const filteredGroups = groupConfigs.filter(g => (g.data[tIdx] || []).length > 1);
@@ -7330,30 +7399,36 @@ function displayStats(timeLabels, groupConfigs) {
             const leftName = filteredGroups[0]?.name || 'Group 1';
             const rightName = filteredGroups[1]?.name || 'Group 2';
             const comparisonLabel = `${leftName} vs ${rightName}`;
-            const sigDecision = getTwoGroupSigDecision(res, bm, sigSource);
+            const rawDecision = getTwoGroupSigDecision(res, bm, sigSource);
+            const sigDecision = twoGroupTimeDecisions.get(tIdx) || rawDecision;
+            const welchAdjusted = twoGroupWelchMap.get(tIdx);
+            const brunnerAdjusted = twoGroupBrunnerMap.get(tIdx);
             pushMethodRecord('welch', {
                 timeLabel: label,
                 timeIndex: tIdx,
                 comparison: comparisonLabel,
-                p: res?.p ?? null,
-                note: res ? `t=${res.t.toFixed(3)}, df=${res.df.toFixed(2)}` : ''
+                p: welchAdjusted?.p ?? (res?.p ?? null),
+                note: res ? `t=${res.t.toFixed(3)}, df=${res.df.toFixed(2)}${welchAdjusted?.correctionLabel ? `; raw p=${formatP(welchAdjusted.rawP)}; ${welchAdjusted.correctionLabel}` : ''}` : ''
             });
             pushMethodRecord('brunner', {
                 timeLabel: label,
                 timeIndex: tIdx,
                 comparison: comparisonLabel,
-                p: bm?.p ?? null,
-                note: bm && Number.isFinite(bm.w) ? `W=${bm.w.toFixed(3)}` : ''
+                p: brunnerAdjusted?.p ?? (bm?.p ?? null),
+                note: bm && Number.isFinite(bm.w) ? `W=${bm.w.toFixed(3)}${brunnerAdjusted?.correctionLabel ? `; raw p=${formatP(brunnerAdjusted.rawP)}; ${brunnerAdjusted.correctionLabel}` : ''}` : ''
             });
             if (res) {
-                detailParts.push(`Welch t=${res.t.toFixed(3)}, df=${res.df.toFixed(2)}, p=${formatPPreciseWithDecimal(res.p)}`);
+                detailParts.push(`Welch t=${res.t.toFixed(3)}, df=${res.df.toFixed(2)}, raw p=${formatPPreciseWithDecimal(res.p)}`);
             }
             if (bm && Number.isFinite(bm.w) && Number.isFinite(bm.p) && bm.p >= 0) {
-                detailParts.push(`Brunner-Munzel (approx) W=${bm.w.toFixed(3)}, df=${bm.df ? bm.df.toFixed(2) : "-"}, p=${formatPPreciseWithDecimal(bm.p)}`);
+                detailParts.push(`Brunner-Munzel (approx) W=${bm.w.toFixed(3)}, df=${bm.df ? bm.df.toFixed(2) : "-"}, raw p=${formatPPreciseWithDecimal(bm.p)}`);
             } else {
                 detailParts.push('Brunner-Munzel (approx) result invalid or unstable (use external tool).');
             }
-            detailParts.push(`Displayed significance source=${sigDecision.sourceLabel}; used=${sigDecision.usedLabel}; stars=${sigDecision.isSig ? (sigDecision.stars || '*') : 'NS'}`);
+            if (sigDecision.correctionLabel) {
+                detailParts.push(`Simple effect of group at ${label}: adj p=${formatPPreciseWithDecimal(sigDecision.p)} (${sigDecision.correctionLabel}), used=${sigDecision.usedLabel}, stars=${sigDecision.stars || 'NS'}`);
+            }
+            detailParts.push(`Displayed significance source=${sigDecision.sourceLabel}; used=${sigDecision.usedLabel}; stars=${sigDecision.stars || 'NS'}`);
         } else {
             const aRes = oneWayANOVA(groupsData);
             if (aRes) {
@@ -7405,7 +7480,7 @@ function displayStats(timeLabels, groupConfigs) {
                         timeIndex: tIdx,
                         comparison: `${aName} vs ${bName}`,
                         p: r.p,
-                        note: `Auto used: ${r.usedLabel}`
+                        note: `Holm-adjusted; raw p=${formatP(r.rawP)}; auto used=${r.usedLabel}`
                     });
                 });
                 const pairWelchRows = runPairwiseComparisons(groupsData, 'welch');
@@ -7417,7 +7492,7 @@ function displayStats(timeLabels, groupConfigs) {
                         timeIndex: tIdx,
                         comparison: `${aName} vs ${bName}`,
                         p: r.p,
-                        note: 'Welch pairwise'
+                        note: `Holm-adjusted; raw p=${formatP(r.rawP)}`
                     });
                 });
                 const pairBrunnerRows = runPairwiseComparisons(groupsData, 'brunner');
@@ -7429,7 +7504,7 @@ function displayStats(timeLabels, groupConfigs) {
                         timeIndex: tIdx,
                         comparison: `${aName} vs ${bName}`,
                         p: r.p,
-                        note: 'Brunner-Munzel pairwise'
+                        note: `Holm-adjusted; raw p=${formatP(r.rawP)}`
                     });
                 });
 
@@ -7447,12 +7522,12 @@ function displayStats(timeLabels, groupConfigs) {
                 pairWelchRows.forEach((r) => {
                     const aName = filteredGroups[r.fromIdx]?.name || `Group ${r.fromIdx + 1}`;
                     const bName = filteredGroups[r.toIdx]?.name || `Group ${r.toIdx + 1}`;
-                    detailParts.push(`Pairwise Welch -> ${aName} vs ${bName}: p=${formatPPreciseWithDecimal(r.p)}`);
+                    detailParts.push(`Pairwise Welch (Holm) -> ${aName} vs ${bName}: adj p=${formatPPreciseWithDecimal(r.p)}, raw p=${formatPPreciseWithDecimal(r.rawP)}`);
                 });
                 pairBrunnerRows.forEach((r) => {
                     const aName = filteredGroups[r.fromIdx]?.name || `Group ${r.fromIdx + 1}`;
                     const bName = filteredGroups[r.toIdx]?.name || `Group ${r.toIdx + 1}`;
-                    detailParts.push(`Pairwise Brunner-Munzel -> ${aName} vs ${bName}: p=${formatPPreciseWithDecimal(r.p)}`);
+                    detailParts.push(`Pairwise Brunner-Munzel (Holm) -> ${aName} vs ${bName}: adj p=${formatPPreciseWithDecimal(r.p)}, raw p=${formatPPreciseWithDecimal(r.rawP)}`);
                 });
                 detailParts.push(`Displayed significance source=${sigDecision.sourceLabel}; status=${sigDecision.statusText}`);
             } else {
@@ -7522,6 +7597,7 @@ function displayStats(timeLabels, groupConfigs) {
                 <td>${summary.one}</td>
                 <td>${summary.two}</td>
                 <td>${summary.three}</td>
+                <td>${summary.four}</td>
                 <td>${active ? 'Shown' : 'Hidden'}</td>
             </tr>`;
         }).join('');
@@ -7576,6 +7652,7 @@ function displayStats(timeLabels, groupConfigs) {
                         <th>* (&lt;0.05)</th>
                         <th>** (&lt;0.01)</th>
                         <th>*** (&lt;0.001)</th>
+                        <th>**** (&lt;0.0001)</th>
                         <th>Display</th>
                     </tr>
                 </thead>
@@ -8161,6 +8238,7 @@ function updatePlot(reflowPass = 0) {
     const withinGroupBracketRows = new Map();
     const bracketOptions = [];
     let maxBracketLayers = 0;
+    const twoGroupTimeDecisions = computeTwoGroupTimeSeriesDecisions(groupConfigs, timeLabels, selectedSigSource);
     timeLabels.forEach((label, tIdx) => {
         const groupEntries = groupConfigs
             .map((g, idx) => ({ idx, name: g.name, data: g.data[tIdx] || [] }))
@@ -8173,7 +8251,8 @@ function updatePlot(reflowPass = 0) {
         if (groupEntries.length === 2) {
             const welchRes = welchTTest(groupsData[0], groupsData[1]);
             const bmRes = brunnerMunzel(groupsData[0], groupsData[1]);
-            const sigDecision = getTwoGroupSigDecision(welchRes, bmRes, sigSource);
+            const rawDecision = getTwoGroupSigDecision(welchRes, bmRes, sigSource);
+            const sigDecision = twoGroupTimeDecisions.get(tIdx) || rawDecision;
             rows = [{
                 fromIdx: 0,
                 toIdx: 1,
