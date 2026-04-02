@@ -2947,7 +2947,8 @@ function stageExplorerTimeLabels(replace = true) {
     if (!values.length) return;
     collectStagedGroupsFromUI();
     if (replace) {
-        stagedTimeLabels = values;
+        const existingTail = stagedTimeLabels.filter((label) => !values.includes(label));
+        stagedTimeLabels = values.concat(existingTail);
     } else {
         values.forEach((val) => {
             if (!stagedTimeLabels.includes(val)) stagedTimeLabels.push(val);
