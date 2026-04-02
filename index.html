@@ -2376,11 +2376,30 @@ function updateStagedTimeLabels(value) {
     renderExplorerTimeSelect();
 }
 
-function updateStagedTimeLabel(idx, value) {
-    stagedTimeLabels[idx] = String(value || '').trim();
-    stagedTimeLabels = stagedTimeLabels.filter(l => l !== '');
-    renderStagedGroups();
+function refreshStagedTimeLabelReferences() {
+    const area = document.getElementById('explorer-staged-area');
+    if (!area) {
+        renderExplorerTimeSelect();
+        return;
+    }
+    area.querySelectorAll('.group-time-grid[data-staged-group]').forEach((grid) => {
+        grid.querySelectorAll('.group-time-col').forEach((col, idx) => {
+            const labelEl = col.querySelector('label');
+            if (labelEl) {
+                labelEl.textContent = stagedTimeLabels[idx] || `Time${idx + 1}`;
+            }
+        });
+    });
+    const bulk = document.getElementById('stagedTimeLabelsBulk');
+    if (bulk && document.activeElement !== bulk) {
+        bulk.value = stagedTimeLabels.join(' ');
+    }
     renderExplorerTimeSelect();
+}
+
+function updateStagedTimeLabel(idx, value) {
+    stagedTimeLabels[idx] = String(value || '');
+    refreshStagedTimeLabelReferences();
 }
 
 function updateStagedGroupTimeColumn(groupIdx, timeIdx, value) {
