@@ -1752,7 +1752,9 @@ const STATS_METHOD_ORDER = [
     'tukey',
     'pairwise_either',
     'pairwise_welch',
-    'pairwise_brunner'
+    'pairwise_brunner',
+    'repeated_baseline',
+    'repeated_pairwise'
 ];
 const DEFAULT_STATS_METHOD_VISIBILITY = STATS_METHOD_ORDER.reduce((acc, key) => {
     acc[key] = true;
@@ -4799,6 +4801,36 @@ function parseData(text, expectedCount) {
     return result;
 }
 
+function parseAlignedDataMatrix(text, expectedCount) {
+    const trimmed = String(text || '').trim();
+    if (!trimmed || !Number.isFinite(expectedCount) || expectedCount < 1) return [];
+    const lines = trimmed.split('\n');
+    let startIdx = 0;
+    const firstLineCells = lines[0].split('\t');
+    if (firstLineCells.some(cell => {
+        const raw = String(cell ?? '').trim();
+        return raw !== '' && Number.isNaN(parseFloat(raw));
+    })) {
+        startIdx = 1;
+    }
+    const rows = [];
+    for (let i = startIdx; i < lines.length; i++) {
+        const values = lines[i].split('\t');
+        const row = Array.from({ length: expectedCount }, (_, j) => {
+            const raw = values[j];
+            if (raw === undefined || raw === null) return null;
+            const textVal = String(raw).trim();
+            if (textVal === '') return null;
+            const parsed = parseFloat(textVal);
+            return Number.isFinite(parsed) ? parsed : null;
+        });
+        if (row.some(v => v !== null)) {
+            rows.push(row);
+        }
+    }
+    return rows;
+}
+
 let timeLabelState = [];
 
 function parseTimeLabelText(text) {
@@ -5188,6 +5220,116 @@ function calcStats(arr) {
 // --- 統計計算ユーチEリチE ---
 
 // 1. Welch's t-test (2群の平坁Eの比輁E
+function collectPairedValues(rows, leftIdx, rightIdx) {
+    const left = [];
+    const right = [];
+    (rows || []).forEach((row) => {
+        const a = row?.[leftIdx];
+        const b = row?.[rightIdx];
+        if (Number.isFinite(a) && Number.isFinite(b)) {
+            left.push(a);
+            right.push(b);
+        }
+    });
+    return { left, right, n: left.length };
+}
+
+function pairedTTest(a, b) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length || a.length < 2) return null;
+    const diffs = a.map((value, idx) => value - b[idx]).filter(Number.isFinite);
+    const n = diffs.length;
+    if (n < 2) return null;
+    const diffStats = calcStats(diffs);
+    const df = n - 1;
+    if (diffStats.sd === 0) {
+        const p = diffStats.mean === 0 ? 1 : 0;
+        const t = diffStats.mean === 0 ? 0 : (diffStats.mean > 0 ? Infinity : -Infinity);
+        return { t, p, df, n, meanDiff: diffStats.mean, sdDiff: diffStats.sd, method: "Paired t-test" };
+    }
+    const t = diffStats.mean / (diffStats.sd / Math.sqrt(n));
+    const p = 2 * (1 - studentTCDF(Math.abs(t), df));
+    return { t, p, df, n, meanDiff: diffStats.mean, sdDiff: diffStats.sd, method: "Paired t-test" };
+}
+
+function holmAdjustRows(rows, pField = 'rawP') {
+    const adjusted = Array(rows.length).fill(null);
+    const ranked = rows
+        .map((row, idx) => ({ idx, p: isValidPValue(row?.[pField]) ? row[pField] : null }))
+        .filter(item => item.p !== null)
+        .sort((a, b) => a.p - b.p);
+    let runningMax = 0;
+    const total = ranked.length;
+    ranked.forEach((item, order) => {
+        const candidate = Math.min(1, item.p * (total - order));
+        runningMax = Math.max(runningMax, candidate);
+        adjusted[item.idx] = runningMax;
+    });
+    return rows.map((row, idx) => ({ ...row, adjustedP: adjusted[idx] }));
+}
+
+function finalizeRepeatedComparisonRows(rows, methodKey) {
+    return holmAdjustRows(rows).map((row) => {
+        const adjustedP = isValidPValue(row.adjustedP) ? row.adjustedP : (isValidPValue(row.rawP) ? row.rawP : null);
+        const isSig = adjustedP !== null && adjustedP < 0.05;
+        return {
+            ...row,
+            p: adjustedP,
+            used: methodKey,
+            usedLabel: getSigSourceLabel(methodKey),
+            isSig,
+            stars: isSig ? getStars(adjustedP) : ''
+        };
+    });
+}
+
+function runRepeatedWithinGroupComparisons(alignedRows, timeLabels, groupName = 'Group') {
+    if (!Array.isArray(alignedRows) || alignedRows.length < 2 || !Array.isArray(timeLabels) || timeLabels.length < 2) {
+        return { baselineRows: [], pairwiseRows: [] };
+    }
+    const baselineLabel = timeLabels[0] || 'Time1';
+    const baselineRawRows = [];
+    const pairwiseRawRows = [];
+
+    for (let tIdx = 1; tIdx < timeLabels.length; tIdx++) {
+        const pairs = collectPairedValues(alignedRows, 0, tIdx);
+        const result = pairedTTest(pairs.left, pairs.right);
+        if (!result || !isValidPValue(result.p)) continue;
+        baselineRawRows.push({
+            groupName,
+            label: `${baselineLabel} vs ${timeLabels[tIdx] || `Time${tIdx + 1}`}`,
+            fromTimeIdx: 0,
+            toTimeIdx: tIdx,
+            rawP: result.p,
+            n: result.n,
+            t: result.t,
+            df: result.df
+        });
+    }
+
+    for (let leftIdx = 0; leftIdx < timeLabels.length; leftIdx++) {
+        for (let rightIdx = leftIdx + 1; rightIdx < timeLabels.length; rightIdx++) {
+            const pairs = collectPairedValues(alignedRows, leftIdx, rightIdx);
+            const result = pairedTTest(pairs.left, pairs.right);
+            if (!result || !isValidPValue(result.p)) continue;
+            pairwiseRawRows.push({
+                groupName,
+                label: `${timeLabels[leftIdx] || `Time${leftIdx + 1}`} vs ${timeLabels[rightIdx] || `Time${rightIdx + 1}`}`,
+                fromTimeIdx: leftIdx,
+                toTimeIdx: rightIdx,
+                rawP: result.p,
+                n: result.n,
+                t: result.t,
+                df: result.df
+            });
+        }
+    }
+
+    return {
+        baselineRows: finalizeRepeatedComparisonRows(baselineRawRows, 'repeated_baseline'),
+        pairwiseRows: finalizeRepeatedComparisonRows(pairwiseRawRows, 'repeated_pairwise')
+    };
+}
+
 function welchTTest(a, b) {
     const s1 = calcStats(a), s2 = calcStats(b);
     if (s1.n < 2 || s2.n < 2) return null;
@@ -5480,7 +5622,9 @@ function getSigSourceLabel(source) {
         pairwise_either: "Pairwise Either",
         pairwise_welch: "Pairwise Welch",
         pairwise_brunner: "Pairwise Brunner-Munzel",
-        anova_pairwise: "ANOVA + Pairwise Either"
+        anova_pairwise: "ANOVA + Pairwise Either",
+        repeated_baseline: "Repeated vs baseline (paired Holm)",
+        repeated_pairwise: "Repeated all-pairs (paired Holm)"
     };
     return labels[source] || source;
 }
@@ -5861,10 +6005,15 @@ function updateCodeDisplay() {
     const code = `// --- Analysis Logic Used ---
 // 1. Welch's T-Test: assumes unequal variance.
 // 2. Brunner-Munzel: robust non-parametric test.
+// 3. Paired t-test + Holm adjustment: row-matched repeated-measures follow-up.
 
 ${brunnerMunzel.toString()}
 
-${welchTTest.toString()}`;
+${welchTTest.toString()}
+
+${pairedTTest.toString()}
+
+${holmAdjustRows.toString()}`;
     document.getElementById('codeDisplay').textContent = code;
 }
 
@@ -7158,6 +7307,7 @@ function displayStats(timeLabels, groupConfigs) {
         return `${exp} (${dec})`;
     };
     const detailLines = [];
+    const withinDetailLines = [];
     const methodRecords = STATS_METHOD_ORDER.reduce((acc, key) => {
         acc[key] = [];
         return acc;
@@ -7315,6 +7465,40 @@ function displayStats(timeLabels, groupConfigs) {
         }
     });
 
+    if (timeLabels.length > 1) {
+        groupConfigs.forEach((group) => {
+            const repeated = runRepeatedWithinGroupComparisons(group.alignedRows || [], timeLabels, group.name);
+            repeated.baselineRows.forEach((row) => {
+                pushMethodRecord('repeated_baseline', {
+                    timeLabel: group.name,
+                    timeIndex: row.toTimeIdx,
+                    comparison: row.label,
+                    p: row.p,
+                    note: `paired n=${row.n}, t=${Number.isFinite(row.t) ? row.t.toFixed(3) : '-'}, raw p=${formatP(row.rawP)}`
+                });
+            });
+            repeated.pairwiseRows.forEach((row) => {
+                pushMethodRecord('repeated_pairwise', {
+                    timeLabel: group.name,
+                    timeIndex: row.fromTimeIdx * 1000 + row.toTimeIdx,
+                    comparison: row.label,
+                    p: row.p,
+                    note: `paired n=${row.n}, t=${Number.isFinite(row.t) ? row.t.toFixed(3) : '-'}, raw p=${formatP(row.rawP)}`
+                });
+            });
+            const groupDetails = [];
+            repeated.baselineRows.forEach((row) => {
+                groupDetails.push(`Repeated vs baseline -> ${row.label}: adj p=${formatPPreciseWithDecimal(row.p)}, raw p=${formatPPreciseWithDecimal(row.rawP)}, paired n=${row.n}`);
+            });
+            repeated.pairwiseRows.forEach((row) => {
+                groupDetails.push(`Repeated all-pairs -> ${row.label}: adj p=${formatPPreciseWithDecimal(row.p)}, raw p=${formatPPreciseWithDecimal(row.rawP)}, paired n=${row.n}`);
+            });
+            if (groupDetails.length) {
+                withinDetailLines.push(`[Within-group: ${group.name}]\n${groupDetails.join('\n')}`);
+            }
+        });
+    }
+
     statsMethodVisibility = normalizeStatsMethodVisibility(statsMethodVisibility);
     const availableMethodKeys = STATS_METHOD_ORDER.filter((key) => methodRecords[key].length > 0);
     const activeMethodKeys = availableMethodKeys.filter((key) => statsMethodVisibility[key] !== false);
@@ -7404,7 +7588,8 @@ function displayStats(timeLabels, groupConfigs) {
     document.getElementById('statsTableContainer').innerHTML = html;
     const detailEl = document.getElementById('calcDetails');
     if (detailEl) {
-        detailEl.textContent = detailLines.length ? detailLines.join('\n\n') : 'No statistical details available.';
+        const allDetailLines = detailLines.concat(withinDetailLines);
+        detailEl.textContent = allDetailLines.length ? allDetailLines.join('\n\n') : 'No statistical details available.';
     }
     updateCodeDisplay();
 }
@@ -7951,11 +8136,15 @@ function updatePlot(reflowPass = 0) {
     // 全グループデータの取得
     const groupCards = document.querySelectorAll('.group-card');
     groupCards.forEach(card => renderGroupTable(card));
-    const groupConfigs = Array.from(groupCards).map(card => ({
-        name: card.querySelector('.group-name-input').value,
-        color: card.querySelector('.group-color-input').value,
-        data: parseData(card.querySelector('.group-data-input').value, timeLabels.length)
-    }));
+    const groupConfigs = Array.from(groupCards).map(card => {
+        const rawText = card.querySelector('.group-data-input').value;
+        return {
+            name: card.querySelector('.group-name-input').value,
+            color: card.querySelector('.group-color-input').value,
+            data: parseData(rawText, timeLabels.length),
+            alignedRows: parseAlignedDataMatrix(rawText, timeLabels.length)
+        };
+    });
     const nGroups = groupConfigs.length;
     ensureGroupOffsets(nGroups);
     ensureGroupLabelOffsets(nGroups);
@@ -7969,6 +8158,7 @@ function updatePlot(reflowPass = 0) {
 
     // 1. まず統計計算を行い、ブラケチEが忁Eな「階層数」を把握する
     const bracketRowsByTime = new Map();
+    const withinGroupBracketRows = new Map();
     const bracketOptions = [];
     let maxBracketLayers = 0;
     timeLabels.forEach((label, tIdx) => {
@@ -8038,6 +8228,31 @@ function updatePlot(reflowPass = 0) {
             : keyedRows.filter(row => row.isSig);
         maxBracketLayers = Math.max(maxBracketLayers, drawRows.length);
     });
+    if (!isCompMode && timeLabels.length > 1) {
+        groupConfigs.forEach((group, gIdx) => {
+            const repeated = runRepeatedWithinGroupComparisons(group.alignedRows || [], timeLabels, group.name);
+            const rows = repeated.baselineRows.concat(repeated.pairwiseRows.filter(row => row.fromTimeIdx !== 0));
+            if (!rows.length) return;
+            const keyedRows = rows.map((row) => {
+                const key = `within|${gIdx}|${row.fromTimeIdx}|${row.toTimeIdx}|${row.used}`;
+                const stars = getManualPlotStars(row.stars, row.p, row.isSig);
+                bracketOptions.push({
+                    key,
+                    label: `${group.name}: ${row.label}`,
+                    p: row.p,
+                    stars,
+                    isSig: row.isSig,
+                    methodLabel: row.usedLabel || getSigSourceLabel(row.used)
+                });
+                return { ...row, stars, key, groupIdx: gIdx };
+            });
+            withinGroupBracketRows.set(gIdx, { group, rows: keyedRows });
+            const drawRows = bracketSelectionMode === 'manual'
+                ? keyedRows.filter(row => manualBracketSelection.has(row.key) && isManualBracketSignificant(row))
+                : keyedRows.filter(row => row.isSig);
+            maxBracketLayers = Math.max(maxBracketLayers, drawRows.length);
+        });
+    }
     renderManualBracketSelect(bracketOptions);
 
     // 2. Y軸の最大値を決宁E(ブラケチEがある場合E20-30%の余白を追加)
@@ -8319,6 +8534,30 @@ function updatePlot(reflowPass = 0) {
                 });
             }
         });
+        if (!isCompMode && timeLabels.length > 1) {
+            const groupSpace = (graphW / timeLabels.length) * 0.85;
+            groupConfigs.forEach((group, gIdx) => {
+                const cache = withinGroupBracketRows.get(gIdx);
+                if (!cache) return;
+                const rows = cache.rows || [];
+                const drawRows = bracketSelectionMode === 'manual'
+                    ? rows.filter(row => manualBracketSelection.has(row.key) && isManualBracketSignificant(row))
+                    : rows.filter(row => row.isSig);
+                if (!drawRows.length) return;
+                const timeStats = timeLabels.map((_, tIdx) => calcStats(group.data[tIdx] || []));
+                const statHeights = timeStats
+                    .filter(s => s.n > 0)
+                    .map(s => yScale(s.mean + (errorType === 'sd' ? s.sd : s.se)));
+                if (!statHeights.length) return;
+                let bracketY = Math.min(...statHeights) - 15 - bracketOffset;
+                drawRows.forEach((row) => {
+                    const x1 = getTimeCenter(row.fromTimeIdx, gIdx, groupSpace);
+                    const x2 = getTimeCenter(row.toTimeIdx, gIdx, groupSpace);
+                    svgItems.push(drawBracket(x1, x2, bracketY, row.stars || '*', fsX));
+                    bracketY -= bracketGap;
+                });
+            });
+        }
     }
 
     // --- Legend Generation ---
